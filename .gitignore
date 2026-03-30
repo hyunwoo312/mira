@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+
+# Build output
+.wxt/
+.output/
+dist/
+
+# ML training pipeline (pre-trained models are in public/)
+/ml/
+/data/
+/scripts/
+/docs/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE / AI
+.idea/
+.vscode/
+.claude/
+*.swp
+
+# Test coverage
+coverage/
+
+# Secrets
+*.pem
+*.key
+credentials.json
+
+# Test artifacts
+test-form.html
+test-ml-debug.ts
+test-result.png
+test-results/
+test-screenshots/
+jobs.txt
+
+# Temp
+/tmp/

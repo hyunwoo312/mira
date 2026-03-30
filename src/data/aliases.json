@@ -1,0 +1,293 @@
+{
+  "countries": {
+    "United States": ["US", "USA", "U.S.", "U.S.A.", "United States of America", "America"],
+    "United Kingdom": ["UK", "U.K.", "Great Britain", "Britain", "England", "GB"],
+    "South Korea": ["Korea", "Republic of Korea", "Korea, Republic of", "KR"],
+    "North Korea": ["Korea, Democratic People's Republic of", "DPRK"],
+    "Russia": ["Russian Federation"],
+    "Taiwan": ["Taiwan, Province of China", "Chinese Taipei"],
+    "Czech Republic": ["Czechia"],
+    "Ivory Coast": ["Côte d'Ivoire", "Cote d'Ivoire"]
+  },
+  "states": {
+    "Alabama": ["AL"],
+    "Alaska": ["AK"],
+    "Arizona": ["AZ"],
+    "Arkansas": ["AR"],
+    "California": ["CA"],
+    "Colorado": ["CO"],
+    "Connecticut": ["CT"],
+    "Delaware": ["DE"],
+    "Florida": ["FL"],
+    "Georgia": ["GA"],
+    "Hawaii": ["HI"],
+    "Idaho": ["ID"],
+    "Illinois": ["IL"],
+    "Indiana": ["IN"],
+    "Iowa": ["IA"],
+    "Kansas": ["KS"],
+    "Kentucky": ["KY"],
+    "Louisiana": ["LA"],
+    "Maine": ["ME"],
+    "Maryland": ["MD"],
+    "Massachusetts": ["MA"],
+    "Michigan": ["MI"],
+    "Minnesota": ["MN"],
+    "Mississippi": ["MS"],
+    "Missouri": ["MO"],
+    "Montana": ["MT"],
+    "Nebraska": ["NE"],
+    "Nevada": ["NV"],
+    "New Hampshire": ["NH"],
+    "New Jersey": ["NJ"],
+    "New Mexico": ["NM"],
+    "New York": ["NY"],
+    "North Carolina": ["NC"],
+    "North Dakota": ["ND"],
+    "Ohio": ["OH"],
+    "Oklahoma": ["OK"],
+    "Oregon": ["OR"],
+    "Pennsylvania": ["PA"],
+    "Rhode Island": ["RI"],
+    "South Carolina": ["SC"],
+    "South Dakota": ["SD"],
+    "Tennessee": ["TN"],
+    "Texas": ["TX"],
+    "Utah": ["UT"],
+    "Vermont": ["VT"],
+    "Virginia": ["VA"],
+    "Washington": ["WA"],
+    "West Virginia": ["WV"],
+    "Wisconsin": ["WI"],
+    "Wyoming": ["WY"],
+    "District of Columbia": ["DC", "D.C."]
+  },
+  "degrees": {
+    "High School": ["High School Diploma", "GED", "Secondary", "HS"],
+    "Associate's": [
+      "Associate",
+      "Associates",
+      "AS",
+      "AA",
+      "A.S.",
+      "A.A.",
+      "Associate Degree",
+      "2-Year Degree"
+    ],
+    "Bachelor's": [
+      "Bachelor",
+      "Bachelors",
+      "BS",
+      "BA",
+      "B.S.",
+      "B.A.",
+      "Bachelor of Science",
+      "Bachelor of Arts",
+      "Undergraduate",
+      "4-Year Degree",
+      "BSc",
+      "BEng"
+    ],
+    "Master's": [
+      "Master",
+      "Masters",
+      "MS",
+      "MA",
+      "M.S.",
+      "M.A.",
+      "Master of Science",
+      "Master of Arts",
+      "MBA",
+      "M.B.A.",
+      "Graduate Degree",
+      "MSc",
+      "MEng"
+    ],
+    "Doctorate": ["PhD", "Ph.D.", "Doctor", "Doctoral", "DrPH", "EdD", "JD", "J.D.", "MD", "M.D."]
+  },
+  "visaType": {
+    "US Citizen": [
+      "Citizen",
+      "Can work for any employer",
+      "Authorized to work for any employer",
+      "No restrictions",
+      "Unrestricted"
+    ],
+    "Green Card / Permanent Resident": [
+      "Green Card",
+      "Permanent Resident",
+      "LPR",
+      "Can work for any employer"
+    ],
+    "H-1B": ["H1B", "H-1B visa", "Requires sponsorship", "Can work for current employer"],
+    "OPT": ["Optional Practical Training", "F-1 OPT", "Requires sponsorship"],
+    "CPT": ["Curricular Practical Training", "F-1 CPT"],
+    "F-1": ["F1 visa", "Student visa"],
+    "L-1": ["L1 visa", "Intracompany transfer"],
+    "TN": ["TN visa", "NAFTA"],
+    "O-1": ["O1 visa", "Extraordinary ability"],
+    "Other": ["Seeking work authorization", "Need sponsorship"]
+  },
+  "yesNo": {
+    "Yes": [
+      "yes",
+      "true",
+      "y",
+      "1",
+      "si",
+      "oui",
+      "ja",
+      "I am",
+      "I do",
+      "I have",
+      "Authorized",
+      "I am authorized",
+      "I acknowledge",
+      "I agree",
+      "I consent",
+      "I accept",
+      "I understand",
+      "I confirm",
+      "I certify",
+      "Can work for any employer"
+    ],
+    "No": [
+      "no",
+      "false",
+      "n",
+      "0",
+      "nein",
+      "non",
+      "I am not",
+      "I do not",
+      "I don't",
+      "I have not",
+      "Not authorized"
+    ]
+  },
+  "gender": {
+    "Male": [
+      "M",
+      "Man",
+      "Masculine",
+      "He/Him",
+      "Cisgender Male",
+      "Cisgender Man",
+      "Cis Male",
+      "Cis Man"
+    ],
+    "Female": [
+      "F",
+      "Woman",
+      "Feminine",
+      "She/Her",
+      "Cisgender Female",
+      "Cisgender Woman",
+      "Cis Female",
+      "Cis Woman"
+    ],
+    "Non-binary": [
+      "Non binary",
+      "Nonbinary",
+      "NB",
+      "Genderqueer",
+      "Gender non-conforming",
+      "They/Them"
+    ],
+    "Decline to self-identify": [
+      "Decline",
+      "Prefer not to say",
+      "Prefer not to answer",
+      "I do not wish to answer",
+      "Choose not to disclose"
+    ]
+  },
+  "race": {
+    "American Indian or Alaska Native": [
+      "American Indian",
+      "Alaska Native",
+      "Native American",
+      "Indigenous"
+    ],
+    "Asian": ["Asian American", "East Asian", "South Asian", "Southeast Asian"],
+    "Black or African American": ["Black", "African American", "African-American"],
+    "Hispanic or Latino": ["Hispanic", "Latino", "Latina", "Latinx", "Latin American"],
+    "Native Hawaiian or Other Pacific Islander": [
+      "Native Hawaiian",
+      "Pacific Islander",
+      "Hawaiian"
+    ],
+    "White": ["Caucasian", "European American"],
+    "Two or More Races": ["Two or more", "Multiracial", "Mixed race", "Multiple races"],
+    "Decline to self-identify": [
+      "Decline",
+      "Prefer not to say",
+      "Prefer not to answer",
+      "Choose not to disclose"
+    ]
+  },
+  "veteran": {
+    "I am not a protected veteran": ["Not a veteran", "No", "Non-veteran", "I am not"],
+    "I identify as a protected veteran": [
+      "Veteran",
+      "Yes",
+      "Protected veteran",
+      "I am a veteran",
+      "I identify"
+    ],
+    "Decline to self-identify": [
+      "Decline",
+      "Prefer not to say",
+      "Prefer not to answer",
+      "Choose not to disclose"
+    ]
+  },
+  "disability": {
+    "Yes, I have a disability": ["Yes", "I have a disability", "Disabled"],
+    "No, I do not have a disability": [
+      "No",
+      "I do not have a disability",
+      "I don't have a disability",
+      "Not disabled",
+      "No disability",
+      "No, I don't have a disability"
+    ],
+    "Decline to self-identify": [
+      "Decline",
+      "Prefer not to say",
+      "Prefer not to answer",
+      "I don't wish to answer",
+      "Choose not to disclose"
+    ]
+  },
+  "noticePeriod": {
+    "Immediately": [
+      "Immediate",
+      "Right away",
+      "ASAP",
+      "Now",
+      "0 days",
+      "Available now",
+      "No notice"
+    ],
+    "2 weeks": ["2 week", "Two weeks", "14 days", "2-week", "Two-week"],
+    "1 month": ["1 month", "One month", "30 days", "4 weeks", "Four weeks"],
+    "2 months": ["2 month", "Two months", "60 days", "8 weeks"],
+    "3+ months": ["3 months", "Three months", "90 days", "3+ month", "12 weeks"]
+  },
+  "lgbtq": {
+    "Yes, I identify as a member of the LGBTQ+ community": ["Yes", "I identify", "I am a member"],
+    "No, I do not identify as a member of the LGBTQ+ community": [
+      "No",
+      "I do not identify",
+      "I am not a member"
+    ],
+    "I don't wish to answer": [
+      "Decline",
+      "Prefer not to say",
+      "Prefer not to answer",
+      "I do not wish to answer",
+      "Choose not to disclose"
+    ]
+  }
+}

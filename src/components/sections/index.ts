@@ -1,0 +1,9 @@
+export { PersonalSection } from './personal-section';
+export { LinksSection } from './links-section';
+export { WorkSection } from './work-section';
+export { EducationSection } from './education-section';
+export { SkillsSection } from './skills-section';
+export { PreferencesSection } from './preferences-section';
+export { EeoSection } from './eeo-section';
+export { DocumentsSection } from './documents-section';
+export { AnswersSection } from './answers-section';
