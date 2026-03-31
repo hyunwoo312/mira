@@ -26,7 +26,7 @@ interface FillState {
   error: string | null;
 }
 
-export function useFill() {
+export function useFill(presetId?: string) {
   const [state, setState] = useState<FillState>({
     isLoading: false,
     result: null,
@@ -35,87 +35,90 @@ export function useFill() {
     error: null,
   });
 
-  const fill = useCallback(async (profile: Profile) => {
-    setState({ isLoading: true, result: null, logs: [], pageUrl: '', error: null });
-
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab?.id) {
-        setState({
-          isLoading: false,
-          result: { filled: 0, failed: 0, skipped: 0, total: 0 },
-          logs: [],
-          pageUrl: '',
-          error: null,
-        });
-        return;
-      }
-
-      const tabId = tab.id;
+  const fill = useCallback(
+    async (profile: Profile) => {
+      setState({ isLoading: true, result: null, logs: [], pageUrl: '', error: null });
 
       try {
-        await chrome.tabs.sendMessage(tabId, { type: 'PING' }, { frameId: 0 });
-      } catch {
-        await chrome.scripting.executeScript({
-          target: { tabId, allFrames: true },
-          files: ['content-scripts/content.js'],
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab?.id) {
+          setState({
+            isLoading: false,
+            result: { filled: 0, failed: 0, skipped: 0, total: 0 },
+            logs: [],
+            pageUrl: '',
+            error: null,
+          });
+          return;
+        }
+
+        const tabId = tab.id;
+
+        try {
+          await chrome.tabs.sendMessage(tabId, { type: 'PING' }, { frameId: 0 });
+        } catch {
+          await chrome.scripting.executeScript({
+            target: { tabId, allFrames: true },
+            files: ['content-scripts/content.js'],
+          });
+          await new Promise((r) => setTimeout(r, 200));
+        }
+
+        const fillMap = profileToFillMap(profile);
+
+        const files = await loadFiles(presetId);
+        const activeResume = files.find((f) => f.category === 'resume' && f.isActive);
+        const activeCoverLetter = files.find((f) => f.category === 'cover_letter' && f.isActive);
+        if (activeResume) {
+          fillMap.resume = JSON.stringify({
+            name: activeResume.name,
+            type: activeResume.type,
+            data: activeResume.data,
+          });
+        }
+        if (activeCoverLetter) {
+          fillMap.coverLetter = JSON.stringify({
+            name: activeCoverLetter.name,
+            type: activeCoverLetter.type,
+            data: activeCoverLetter.data,
+          });
+        }
+
+        const answerBank = (profile.answerBank ?? []).filter((a) => a.question && a.answer);
+        const fillMessage = { type: 'FILL', fillMap, answerBank };
+
+        const response = await chrome.tabs
+          .sendMessage(tabId, fillMessage, { frameId: 0 })
+          .catch(() => ({ result: { filled: 0, total: 0, failed: 0, skipped: 0, logs: [] } }));
+
+        const res = response?.result ?? { filled: 0, failed: 0, skipped: 0, total: 0, logs: [] };
+
+        setState({
+          isLoading: false,
+          result: {
+            filled: res.filled,
+            failed: res.failed ?? 0,
+            skipped: res.skipped ?? 0,
+            total: res.total,
+            durationMs: res.durationMs,
+            mlAvailable: res.mlAvailable,
+          },
+          logs: res.logs ?? [],
+          pageUrl: tab.url ?? '',
+          error: null,
         });
-        await new Promise((r) => setTimeout(r, 200));
-      }
-
-      const fillMap = profileToFillMap(profile);
-
-      const files = await loadFiles();
-      const activeResume = files.find((f) => f.category === 'resume' && f.isActive);
-      const activeCoverLetter = files.find((f) => f.category === 'cover_letter' && f.isActive);
-      if (activeResume) {
-        fillMap.resume = JSON.stringify({
-          name: activeResume.name,
-          type: activeResume.type,
-          data: activeResume.data,
+      } catch (err) {
+        setState({
+          isLoading: false,
+          result: null,
+          logs: [],
+          pageUrl: '',
+          error: err instanceof Error ? err.message : 'Fill failed unexpectedly',
         });
       }
-      if (activeCoverLetter) {
-        fillMap.coverLetter = JSON.stringify({
-          name: activeCoverLetter.name,
-          type: activeCoverLetter.type,
-          data: activeCoverLetter.data,
-        });
-      }
-
-      const answerBank = (profile.answerBank ?? []).filter((a) => a.question && a.answer);
-      const fillMessage = { type: 'FILL', fillMap, answerBank };
-
-      const response = await chrome.tabs
-        .sendMessage(tabId, fillMessage, { frameId: 0 })
-        .catch(() => ({ result: { filled: 0, total: 0, failed: 0, skipped: 0, logs: [] } }));
-
-      const res = response?.result ?? { filled: 0, failed: 0, skipped: 0, total: 0, logs: [] };
-
-      setState({
-        isLoading: false,
-        result: {
-          filled: res.filled,
-          failed: res.failed ?? 0,
-          skipped: res.skipped ?? 0,
-          total: res.total,
-          durationMs: res.durationMs,
-          mlAvailable: res.mlAvailable,
-        },
-        logs: res.logs ?? [],
-        pageUrl: tab.url ?? '',
-        error: null,
-      });
-    } catch (err) {
-      setState({
-        isLoading: false,
-        result: null,
-        logs: [],
-        pageUrl: '',
-        error: err instanceof Error ? err.message : 'Fill failed unexpectedly',
-      });
-    }
-  }, []);
+    },
+    [presetId],
+  );
 
   const reset = useCallback(() => {
     setState({ isLoading: false, result: null, logs: [], pageUrl: '', error: null });

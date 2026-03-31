@@ -10,7 +10,7 @@ import {
 import { MonthPicker } from '@/components/ui/month-picker';
 import { LedgerRow, LedgerInput } from '@/components/ui/ledger-row';
 import { Plus, X, ArrowUpRight } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import type { Profile, EducationEntry } from '@/lib/schema';
 
 const DEGREE_OPTIONS = [
@@ -216,13 +216,19 @@ export function EducationSection() {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
 
   const rawEntries = watch('education');
+
+  const dateKey = (rawEntries ?? [])
+    .map((e) => `${e.startYear ?? 0}-${e.startMonth ?? 0}-${e.gradYear ?? 0}-${e.gradMonth ?? 0}`)
+    .join('|');
+
   const sortedIndices = useMemo(() => {
     const entries = rawEntries ?? [];
     return entries
       .map((e, i) => ({ entry: e, index: i }))
       .sort((a, b) => sortKey(b.entry) - sortKey(a.entry))
       .map((x) => x.index);
-  }, [rawEntries]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateKey]);
 
   const handleAdd = () => {
     append({ school: '', degree: '', fieldOfStudy: '', minor: '', gpa: '' });
@@ -257,23 +263,30 @@ export function EducationSection() {
         )}
       </AnimatePresence>
 
-      {sortedIndices.map((originalIndex, displayIndex) => {
-        const field = fields[originalIndex]!;
-        return (
-          <EduItem
-            key={field.id}
-            index={originalIndex}
-            num={String(displayIndex + 1).padStart(2, '0')}
-            isFirst={displayIndex === 0}
-            isExpanded={expandedIndex === originalIndex}
-            onToggle={() => handleToggle(originalIndex)}
-            onRemove={() => {
-              if (expandedIndex === originalIndex) setExpandedIndex(null);
-              remove(originalIndex);
-            }}
-          />
-        );
-      })}
+      <LayoutGroup>
+        {sortedIndices.map((originalIndex, displayIndex) => {
+          const field = fields[originalIndex]!;
+          return (
+            <motion.div
+              key={field.id}
+              layout
+              transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
+            >
+              <EduItem
+                index={originalIndex}
+                num={String(displayIndex + 1).padStart(2, '0')}
+                isFirst={displayIndex === 0}
+                isExpanded={expandedIndex === originalIndex}
+                onToggle={() => handleToggle(originalIndex)}
+                onRemove={() => {
+                  if (expandedIndex === originalIndex) setExpandedIndex(null);
+                  remove(originalIndex);
+                }}
+              />
+            </motion.div>
+          );
+        })}
+      </LayoutGroup>
     </div>
   );
 }

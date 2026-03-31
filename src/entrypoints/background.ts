@@ -47,7 +47,7 @@ export default defineBackground(() => {
     setTimeout(() => loadModel(), 1000);
   }
 
-  async function _destroyOffscreen(): Promise<void> {
+  async function destroyOffscreen(): Promise<void> {
     if (!offscreenReady) return;
     try {
       await chrome.offscreen.closeDocument();
@@ -58,18 +58,28 @@ export default defineBackground(() => {
     mlStatus = 'idle';
   }
 
-  // Pre-load ML model on startup so it's ready for first fill
-  ensureOffscreen().catch(() => {});
+  let destroyTimer: ReturnType<typeof setTimeout> | null = null;
 
   chrome.runtime.onConnect.addListener((port) => {
     if (port.name !== 'sidepanel') return;
 
     sidePanelPort = port;
+
+    // Cancel pending destroy if sidepanel reopened quickly
+    if (destroyTimer) {
+      clearTimeout(destroyTimer);
+      destroyTimer = null;
+    }
+
     ensureOffscreen();
 
     port.onDisconnect.addListener(() => {
       sidePanelPort = null;
-      // Don't destroy offscreen — keep ML model loaded for subsequent fills
+      // Delay destroy so quick close-and-reopen doesn't trigger full reload
+      destroyTimer = setTimeout(() => {
+        destroyTimer = null;
+        destroyOffscreen();
+      }, 10_000);
     });
   });
 

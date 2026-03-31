@@ -28,7 +28,6 @@ function MonthPicker({
   const displayText = value ? `${MONTHS[value.month - 1]} ${value.year}` : null;
   const currentYear = new Date().getFullYear();
 
-  // Generate year grid centered around current view
   const yearStart = Math.floor(year / 12) * 12;
   const years = Array.from({ length: 12 }, (_, i) => yearStart + i);
 

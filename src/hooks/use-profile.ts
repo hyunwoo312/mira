@@ -41,7 +41,7 @@ export function useProfile() {
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!isLoaded || !store) return;
-    // eslint-disable-next-line react-hooks/incompatible-library -- watch() subscription is intentional for auto-save; stale memoization is not a concern here
+
     const sub = form.watch(() => {
       if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
       autoSaveTimer.current = setTimeout(() => {
@@ -98,6 +98,14 @@ export function useProfile() {
       const updated = addPreset(store, name, newProfile);
       if (!updated) return false; // at max
       await savePresetStore(updated);
+      // Initialize empty file storage for the new preset so it doesn't inherit legacy files
+      const newId = updated.presets.find(
+        (p) => p.name === name && p.id !== store.activePresetId,
+      )?.id;
+      if (newId) {
+        const { saveFiles } = await import('@/lib/file-storage');
+        await saveFiles([], newId);
+      }
       setStore(updated);
       const profile = getActiveProfile(updated);
       form.reset(profile);

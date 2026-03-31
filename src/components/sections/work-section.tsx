@@ -5,7 +5,7 @@ import { Switch } from '@/components/ui/switch';
 import { MonthPicker } from '@/components/ui/month-picker';
 import { LedgerRow, LedgerInput } from '@/components/ui/ledger-row';
 import { Plus, X, ArrowUpRight, AlertTriangle } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import type { Profile, WorkEntry } from '@/lib/schema';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -217,16 +217,27 @@ export function WorkSection() {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
 
   const rawEntries = watch('workExperience');
+
+  // Build a key from all date fields so sorting recomputes when any date changes
+  const dateKey = (rawEntries ?? [])
+    .map(
+      (e) =>
+        `${e.startYear ?? 0}-${e.startMonth ?? 0}-${e.endYear ?? 0}-${e.endMonth ?? 0}-${e.current ? 1 : 0}`,
+    )
+    .join('|');
+
   const sortedIndices = useMemo(() => {
     const entries = rawEntries ?? [];
     return entries
       .map((e, i) => ({ entry: e, index: i }))
       .sort((a, b) => sortKey(b.entry) - sortKey(a.entry))
       .map((x) => x.index);
-  }, [rawEntries]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateKey]);
 
   const handleAdd = () => {
-    append({ company: '', title: '', current: false, description: '' });
+    const hasCurrent = (rawEntries ?? []).some((e) => e.current);
+    append({ company: '', title: '', current: !hasCurrent, description: '' });
     setExpandedIndex(fields.length);
   };
 
@@ -259,41 +270,56 @@ export function WorkSection() {
         )}
       </AnimatePresence>
 
-      {sortedIndices.map((originalIndex, displayIndex) => {
-        const field = fields[originalIndex]!;
-        const num = String(displayIndex + 1).padStart(2, '0');
-        return (
-          <WorkEntryItem
-            key={field.id}
-            index={originalIndex}
-            num={num}
-            isFirst={displayIndex === 0}
-            isExpanded={expandedIndex === originalIndex}
-            onToggle={() => handleToggle(originalIndex)}
-            onRemove={() => {
-              if (expandedIndex === originalIndex) setExpandedIndex(null);
-              remove(originalIndex);
-            }}
-          />
-        );
-      })}
+      <LayoutGroup>
+        {sortedIndices.map((originalIndex, displayIndex) => {
+          const field = fields[originalIndex]!;
+          const num = String(displayIndex + 1).padStart(2, '0');
+          return (
+            <motion.div
+              key={field.id}
+              layout
+              transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
+            >
+              <WorkEntryItem
+                index={originalIndex}
+                num={num}
+                isFirst={displayIndex === 0}
+                isExpanded={expandedIndex === originalIndex}
+                onToggle={() => handleToggle(originalIndex)}
+                onRemove={() => {
+                  if (expandedIndex === originalIndex) setExpandedIndex(null);
+                  remove(originalIndex);
+                }}
+              />
+            </motion.div>
+          );
+        })}
+      </LayoutGroup>
 
       {(() => {
         const overlaps = getOverlaps(rawEntries ?? []);
         return overlaps.length > 0 ? (
-          <div className="space-y-1">
-            {overlaps.map(([i, j]) => (
-              <div
-                key={`o-${i}-${j}`}
-                className="flex items-center gap-2 px-3 py-2 bg-yellow-500/5 border border-yellow-500/15 text-yellow-600 dark:text-yellow-400"
-              >
-                <AlertTriangle size={13} className="shrink-0" />
-                <span className="text-[11px]">
-                  Overlapping: {rawEntries?.[i]?.company || 'Untitled'} and{' '}
-                  {rawEntries?.[j]?.company || 'Untitled'}
-                </span>
-              </div>
-            ))}
+          <div className="space-y-1 mt-2">
+            {overlaps.map(([i, j]) => {
+              const a = rawEntries?.[i];
+              const b = rawEntries?.[j];
+              const aName = a?.company || a?.title || 'Role ' + (i + 1);
+              const bName = b?.company || b?.title || 'Role ' + (j + 1);
+              const aRange = `${formatDate(a?.startMonth, a?.startYear)} – ${a?.current ? 'Present' : formatDate(a?.endMonth, a?.endYear) || '?'}`;
+              const bRange = `${formatDate(b?.startMonth, b?.startYear)} – ${b?.current ? 'Present' : formatDate(b?.endMonth, b?.endYear) || '?'}`;
+              return (
+                <div
+                  key={`o-${i}-${j}`}
+                  className="flex items-start gap-2 px-3 py-2 bg-yellow-500/5 border border-yellow-500/15 text-yellow-600 dark:text-yellow-400 rounded-sm"
+                >
+                  <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+                  <span className="text-[11px] leading-relaxed">
+                    <strong>{aName}</strong> ({aRange}) overlaps with <strong>{bName}</strong> (
+                    {bRange})
+                  </span>
+                </div>
+              );
+            })}
           </div>
         ) : null;
       })()}

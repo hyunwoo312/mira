@@ -6,6 +6,7 @@ import type { Profile } from '@/lib/schema';
 
 interface Props {
   lastSaved?: number;
+  hasDocuments?: boolean;
 }
 
 const SECTIONS = [
@@ -24,7 +25,7 @@ const SECTIONS = [
     label: 'Preferences',
     check: (p: Profile) => !!(p.noticePeriod || p.workArrangement.length > 0),
   },
-  { label: 'Documents', check: () => true },
+  { label: 'Documents', check: (_p: Profile, hasDocuments?: boolean) => !!hasDocuments },
 ];
 
 const WATCHED_FIELDS = [
@@ -44,14 +45,14 @@ const WATCHED_FIELDS = [
   'workArrangement',
 ] as const;
 
-export function ProfileCompleteness({ lastSaved = 0 }: Props) {
+export function ProfileCompleteness({ lastSaved = 0, hasDocuments = false }: Props) {
   const { watch } = useFormContext<Profile>();
   const watched = watch(WATCHED_FIELDS as unknown as readonly (keyof Profile)[]);
   const profile = Object.fromEntries(
     WATCHED_FIELDS.map((k, i) => [k, watched[i]]),
   ) as unknown as Profile;
 
-  const completed = SECTIONS.filter((s) => s.check(profile)).length;
+  const completed = SECTIONS.filter((s) => s.check(profile, hasDocuments)).length;
   const total = SECTIONS.length;
   const pct = Math.round((completed / total) * 100);
 

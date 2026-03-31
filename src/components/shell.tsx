@@ -21,6 +21,7 @@ import {
 import { useScrollspy } from '@/hooks/use-scrollspy';
 import { useProfile } from '@/hooks/use-profile';
 import { useFill } from '@/hooks/use-fill';
+import { useFiles } from '@/hooks/use-files';
 import { useMLStatus } from '@/hooks/use-ml-status';
 import { PROFILE_SECTIONS } from '@/types/profile';
 import type { SectionId } from '@/types/profile';
@@ -68,7 +69,8 @@ export function Shell() {
     importData,
     deleteAllData,
   } = useProfile();
-  const { isLoading, result, logs, pageUrl, fill } = useFill();
+  const { isLoading, result, logs, pageUrl, fill } = useFill(activePresetId);
+  const { files } = useFiles(activePresetId);
   const { mlStatus, mlProgress } = useMLStatus();
 
   const firstName = form.watch('firstName');
@@ -112,7 +114,7 @@ export function Shell() {
           onRequestDelete={setDeletePresetId}
           onRename={rename}
         />
-        <ProfileCompleteness lastSaved={lastSaved} />
+        <ProfileCompleteness lastSaved={lastSaved} hasDocuments={files.length > 0} />
         <TabBar activeSection={activeSection} onTabClick={scrollToSection} />
 
         <div ref={containerRef} className="flex-1 overflow-y-auto scroll-area px-6 pt-4 pb-32">
@@ -126,7 +128,11 @@ export function Shell() {
                 title={heading.top}
                 titleBold={heading.bold}
               >
-                <Component />
+                {section.id === 'documents' ? (
+                  <DocumentsSection presetId={activePresetId} />
+                ) : (
+                  <Component />
+                )}
               </Section>
             );
           })}

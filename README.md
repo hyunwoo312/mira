@@ -4,61 +4,64 @@ Chrome extension that auto-fills job applications. Supports Ashby, Greenhouse, a
 
 Uses a fine-tuned MiniLM model to classify form fields and match answers. Heuristic patterns handle the obvious stuff (name, email, phone), ML handles the rest (sponsorship, consent, EEO questions).
 
-## Setup
+## Install
+
+### From GitHub Releases (easiest)
+
+1. Download the latest `mira-chrome.zip` from [Releases](https://github.com/hyunwoo312/mira/releases/latest)
+2. Unzip the file
+3. Go to `chrome://extensions` → enable Developer Mode
+4. Click "Load unpacked" → select the unzipped folder
+5. Open any job application and click the Mira icon in the sidebar
+
+### From Source
 
 ```bash
 pnpm install
 pnpm build
 ```
 
-Load the extension in Chrome:
+Then load `.output/chrome-mv3/` as an unpacked extension in Chrome.
 
-1. Go to `chrome://extensions`
-2. Enable Developer Mode
-3. Click "Load unpacked" → select `.output/chrome-mv3/`
-4. Open any job application and click the Mira icon in the sidebar
+## How to Use
+
+### Setting Up Your Profile
+
+Open the Mira sidebar on any page. Fill in your information across the profile sections:
+
+- **Personal** — name, email, phone, address, date of birth
+- **Links** — LinkedIn, GitHub, portfolio, and additional URLs
+- **Work Experience** — roles auto-sort by date; first entry defaults to "currently working"
+- **Education** — schools and degrees, also sorted by date
+- **Skills & Languages** — skills list and language proficiencies
+- **Preferences** — salary range, work authorization, start date, work arrangement
+- **EEO** — optional demographic info (gender, race, veteran status, etc.)
+- **Documents** — upload resume and cover letter (per-preset)
+- **Custom Questions** — save answers to common open-ended questions for reuse
+
+Your profile auto-saves as you type.
+
+### Filling Applications
+
+1. Navigate to a job application page (Ashby, Greenhouse, or Lever)
+2. Open the Mira sidebar and click **Fill Application**
+3. Mira scans the form, classifies each field, and fills them automatically
+4. Review the fill log to see what was filled, skipped, or failed
+
+### Multiple Profiles
+
+Use presets to maintain separate profiles (e.g., "SWE" and "PM"). Each preset has its own profile data and documents. Switch between them from the top bar.
+
+### ML Model
+
+The field classifier runs entirely in your browser — no data leaves your machine. The model loads when you open the sidebar and unloads when you close it to save memory.
 
 ## Development
 
 ```bash
 pnpm dev          # hot-reload dev server
-pnpm build        # production build (~7min on WSL2, ~1min on native Linux)
-pnpm build:ui     # rebuild UI only (reuses cached models)
+pnpm build        # production build
 ```
-
-## ML Model
-
-The field classifier lives in `public/models/field-classifier/`. A pre-trained ONNX model is included and works out of the box.
-
-## Architecture
-
-```
-src/
-  entrypoints/
-    sidepanel/        # React UI (profile editor + fill button)
-    content.ts        # Content script (runs fillPage pipeline)
-    page-script.ts    # MAIN world script (React props access)
-    background.ts     # Service worker (ML inference relay)
-    offscreen/        # Offscreen document (ONNX model loading)
-  lib/
-    autofill/         # Pipeline: scan → classify → fill
-    ml/               # Transformers.js classifier + embeddings
-  components/         # UI components
-  hooks/              # React hooks (profile, fill, theme, scrollspy)
-```
-
-The autofill pipeline:
-
-1. **Scan** — detect all form fields on the page (ATS-specific scanners)
-2. **Classify** — Tier 1 (options) → Tier 2 (heuristics) → Tier 3 (ML) → Tier 4 (fallback patterns)
-3. **Fill** — text fields first, then selects, then groups, then location (deferred for API loading)
-
-## Tech
-
-- React 19, TypeScript, Tailwind CSS 4, Radix UI, Framer Motion
-- WXT (Chrome extension framework)
-- Transformers.js + ONNX Runtime (in-browser ML inference)
-- React Hook Form + Zod (profile management)
 
 ## License
 

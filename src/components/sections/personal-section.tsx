@@ -1,12 +1,5 @@
 import { useFormContext, Controller } from 'react-hook-form';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from '@/components/ui/select';
 import { Combobox } from '@/components/ui/combobox';
 import { DatePicker } from '@/components/ui/date-picker';
 import { LedgerRow, LedgerInput } from '@/components/ui/ledger-row';
@@ -139,18 +132,14 @@ export function PersonalSection() {
               name="state"
               control={control}
               render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger className="w-full h-auto border-0 border-b-0 px-0 py-0 text-sm text-right justify-end">
-                    <SelectValue placeholder="State..." />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-60">
-                    {US_STATES.map(([abbr, name]) => (
-                      <SelectItem key={abbr} value={name}>
-                        {name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Combobox
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  options={US_STATES.map(([, name]) => name)}
+                  placeholder="State..."
+                  alignRight
+                  bare
+                />
               )}
             />
           </div>
@@ -171,8 +160,7 @@ export function PersonalSection() {
               value={field.value}
               onValueChange={field.onChange}
               options={COUNTRIES}
-              placeholder="Select country..."
-              searchPlaceholder="Search countries..."
+              placeholder="Country..."
               alignRight
               bare
             />

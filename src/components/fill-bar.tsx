@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { saveFeedback } from '@/lib/autofill/feedback';
+import { useUpdateCheck } from '@/hooks/use-update-check';
 import type { ModelStatus } from '@/lib/ml/types';
 
 export interface FillLog {
@@ -61,6 +62,7 @@ export function FillBar({
   onImport,
   onDeleteAll,
 }: FillBarProps) {
+  const { updateAvailable, releasesUrl } = useUpdateCheck();
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -490,9 +492,19 @@ export function FillBar({
                 {expanded ? 'Hide Log' : 'View Log'}
               </button>
             )}
-            <span className="text-[9px] text-foreground/25">
+            <span className="text-[10px] uppercase tracking-widest font-medium leading-none text-foreground/50">
               v{chrome.runtime.getManifest().version}
             </span>
+            {updateAvailable && (
+              <a
+                href={releasesUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[10px] uppercase tracking-widest font-medium leading-none text-green-600 hover:underline cursor-pointer"
+              >
+                Update available
+              </a>
+            )}
           </div>
           <div className="relative" ref={menuRef}>
             <button
