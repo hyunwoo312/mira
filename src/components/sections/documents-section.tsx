@@ -81,8 +81,8 @@ const CATEGORIES: { value: Category; label: string }[] = [
   { value: 'cover_letter', label: 'Cover Letter' },
 ];
 
-export function DocumentsSection() {
-  const { addFile, removeFile, setActive, getByCategory } = useFiles();
+export function DocumentsSection({ presetId }: { presetId?: string }) {
+  const { addFile, removeFile, setActive, getByCategory } = useFiles(presetId);
   const [activeCategory, setActiveCategory] = useState<Category>('resume');
 
   const resumeFiles = getByCategory('resume');

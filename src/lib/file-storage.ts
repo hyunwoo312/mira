@@ -1,7 +1,12 @@
-const FILES_KEY = 'mira_files';
+const FILES_KEY_PREFIX = 'mira_files';
+const LEGACY_FILES_KEY = 'mira_files';
 
 export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB per file
 export const MAX_TOTAL_STORAGE = 50 * 1024 * 1024; // 50 MB total
+
+function filesKey(presetId?: string): string {
+  return presetId ? `${FILES_KEY_PREFIX}_${presetId}` : LEGACY_FILES_KEY;
+}
 
 export interface StoredFile {
   id: string;
@@ -14,17 +19,30 @@ export interface StoredFile {
   uploadedAt: number;
 }
 
-export async function loadFiles(): Promise<StoredFile[]> {
+export async function loadFiles(presetId?: string): Promise<StoredFile[]> {
   try {
-    const result = await chrome.storage.local.get(FILES_KEY);
-    return Array.isArray(result[FILES_KEY]) ? result[FILES_KEY] : [];
+    const key = filesKey(presetId);
+    const result = await chrome.storage.local.get([key, LEGACY_FILES_KEY]);
+
+    // If preset-specific files exist, use them
+    if (Array.isArray(result[key])) return result[key];
+
+    // Migrate legacy files to the first preset that accesses them, then delete the legacy key
+    if (presetId && Array.isArray(result[LEGACY_FILES_KEY])) {
+      const legacy = result[LEGACY_FILES_KEY] as StoredFile[];
+      await chrome.storage.local.set({ [key]: legacy });
+      await chrome.storage.local.remove(LEGACY_FILES_KEY);
+      return legacy;
+    }
+
+    return [];
   } catch {
     return [];
   }
 }
 
-export async function saveFiles(files: StoredFile[]): Promise<void> {
-  await chrome.storage.local.set({ [FILES_KEY]: files });
+export async function saveFiles(files: StoredFile[], presetId?: string): Promise<void> {
+  await chrome.storage.local.set({ [filesKey(presetId)]: files });
 }
 
 export function fileToBase64(file: File): Promise<string> {

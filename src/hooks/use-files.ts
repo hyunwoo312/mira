@@ -11,7 +11,7 @@ import {
   type StoredFile,
 } from '@/lib/file-storage';
 
-export function useFiles() {
+export function useFiles(presetId?: string) {
   const [files, setFiles] = useState<StoredFile[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,11 +38,12 @@ export function useFiles() {
   );
 
   useEffect(() => {
-    loadFiles().then((f) => {
+    setIsLoaded(false); // eslint-disable-line react-hooks/set-state-in-effect -- intentional reset on preset switch
+    loadFiles(presetId).then((f) => {
       setFiles(f);
       setIsLoaded(true);
     });
-  }, []);
+  }, [presetId]);
 
   useEffect(() => {
     return () => {
@@ -50,10 +51,13 @@ export function useFiles() {
     };
   }, []);
 
-  const persist = useCallback(async (updated: StoredFile[]) => {
-    await saveFiles(updated);
-    setFiles(updated);
-  }, []);
+  const persist = useCallback(
+    async (updated: StoredFile[]) => {
+      await saveFiles(updated, presetId);
+      setFiles(updated);
+    },
+    [presetId],
+  );
 
   const addFile = useCallback(
     async (file: File, category: StoredFile['category']) => {
