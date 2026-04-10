@@ -1,9 +1,3 @@
-/**
- * Single fuzzy matcher used by all option-based input types.
- * Handles alias matching, normalization, and contains matching.
- * Alias lookups are category-scoped to prevent cross-contamination.
- */
-
 import aliasData from '@/data/aliases.json';
 
 function norm(s: string): string {
@@ -106,6 +100,7 @@ const CATEGORY_TO_ALIAS: Record<string, string> = {
   country: 'countries',
   state: 'states',
   degree: 'degrees',
+  fieldOfStudy: 'fieldOfStudy',
   startDate: 'noticePeriod',
 };
 
@@ -154,25 +149,27 @@ export function fuzzyMatchOption(
     if (idx >= 0) return { index: idx, score: 1 };
   }
 
-  // 3. Direct contains match — with word boundary for short values
+  // 3. Direct contains match — prefer shortest matching option (closest to exact)
   if (normedValue.length >= 4) {
+    let bestIdx = -1;
+    let bestLen = Infinity;
     for (let i = 0; i < normed.length; i++) {
       if (normed[i]!.length < 4) continue;
+      let matched = false;
       if (normedValue.length < 8) {
-        if (normed[i]!.startsWith(normedValue)) {
-          return { index: i, score: 0.85 };
-        }
-      } else {
-        if (normed[i]!.length >= 5) {
-          const wordBoundary = new RegExp(
-            `\\b${normedValue.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`,
-          );
-          if (wordBoundary.test(normed[i]!) || normedValue.includes(normed[i]!)) {
-            return { index: i, score: 0.85 };
-          }
-        }
+        matched = normed[i]!.startsWith(normedValue);
+      } else if (normed[i]!.length >= 5) {
+        const wordBoundary = new RegExp(
+          `\\b${normedValue.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`,
+        );
+        matched = wordBoundary.test(normed[i]!) || normedValue.includes(normed[i]!);
+      }
+      if (matched && normed[i]!.length < bestLen) {
+        bestIdx = i;
+        bestLen = normed[i]!.length;
       }
     }
+    if (bestIdx >= 0) return { index: bestIdx, score: 0.85 };
   }
 
   // 4. Category-scoped alias contains match (min 4 chars)

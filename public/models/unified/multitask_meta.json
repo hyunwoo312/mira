@@ -1,0 +1,5 @@
+{
+  "base_model_name": "microsoft/deberta-v3-xsmall",
+  "num_categories": 56,
+  "hidden_size": 384
+}

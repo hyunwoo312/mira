@@ -10,22 +10,48 @@ interface Props {
 }
 
 const SECTIONS = [
-  { label: 'Name', check: (p: Profile) => !!(p.firstName && p.lastName) },
-  { label: 'Email', check: (p: Profile) => !!p.email },
-  { label: 'Phone', check: (p: Profile) => !!p.phone },
-  { label: 'Address', check: (p: Profile) => !!(p.city && p.state) },
-  { label: 'Links', check: (p: Profile) => !!(p.linkedin || p.github || p.portfolio) },
+  {
+    label: 'Name',
+    hint: 'Add your first and last name',
+    check: (p: Profile) => !!(p.firstName && p.lastName),
+  },
+  { label: 'Email', hint: 'Add your email address', check: (p: Profile) => !!p.email },
+  { label: 'Phone', hint: 'Add your phone number', check: (p: Profile) => !!p.phone },
+  {
+    label: 'Address',
+    hint: 'Add your city and state',
+    check: (p: Profile) => !!(p.city && p.state),
+  },
+  {
+    label: 'Links',
+    hint: 'Add a LinkedIn, GitHub, or portfolio link',
+    check: (p: Profile) => !!(p.linkedin || p.github || p.portfolio),
+  },
   {
     label: 'Work',
+    hint: 'Add at least one work experience entry',
     check: (p: Profile) => p.workExperience.length > 0 && !!p.workExperience[0]?.company,
   },
-  { label: 'Education', check: (p: Profile) => p.education.length > 0 && !!p.education[0]?.school },
-  { label: 'Skills', check: (p: Profile) => p.skills.length > 0 },
+  {
+    label: 'Education',
+    hint: 'Add your school and degree',
+    check: (p: Profile) => p.education.length > 0 && !!p.education[0]?.school,
+  },
+  {
+    label: 'Skills',
+    hint: 'Add your technical or relevant skills',
+    check: (p: Profile) => p.skills.length > 0,
+  },
   {
     label: 'Preferences',
+    hint: 'Set your start date or work arrangement',
     check: (p: Profile) => !!(p.noticePeriod || p.workArrangement.length > 0),
   },
-  { label: 'Documents', check: (_p: Profile, hasDocuments?: boolean) => !!hasDocuments },
+  {
+    label: 'Documents',
+    hint: 'Upload your resume for auto-attach',
+    check: (_p: Profile, hasDocuments?: boolean) => !!hasDocuments,
+  },
 ];
 
 const WATCHED_FIELDS = [
@@ -52,9 +78,23 @@ export function ProfileCompleteness({ lastSaved = 0, hasDocuments = false }: Pro
     WATCHED_FIELDS.map((k, i) => [k, watched[i]]),
   ) as unknown as Profile;
 
-  const completed = SECTIONS.filter((s) => s.check(profile, hasDocuments)).length;
+  const incomplete = SECTIONS.filter((s) => !s.check(profile, hasDocuments));
+  const completed = SECTIONS.length - incomplete.length;
   const total = SECTIONS.length;
   const pct = Math.round((completed / total) * 100);
+
+  // Cycle through incomplete section hints
+  const [hintIdx, setHintIdx] = useState(0);
+  useEffect(() => {
+    if (incomplete.length === 0) return;
+    const timer = setInterval(() => {
+      setHintIdx((prev) => (prev + 1) % incomplete.length);
+    }, 4000);
+    return () => {
+      clearInterval(timer);
+      setHintIdx(0);
+    };
+  }, [incomplete.length]);
 
   // Animated counter
   const motionPct = useMotionValue(0);
@@ -111,6 +151,20 @@ export function ProfileCompleteness({ lastSaved = 0, hasDocuments = false }: Pro
           transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
         />
       </div>
+      <AnimatePresence mode="wait">
+        {incomplete.length > 0 && (
+          <motion.p
+            key={incomplete[hintIdx % incomplete.length]?.label}
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.25 }}
+            className="text-[9px] text-muted-foreground mt-1.5 leading-tight"
+          >
+            {incomplete[hintIdx % incomplete.length]?.hint}
+          </motion.p>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Dropzone } from '@/components/ui/dropzone';
 import { Button } from '@/components/ui/button';
-import { FileText, Trash2, Check } from 'lucide-react';
+import { FileText, Trash2, Check, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useFiles } from '@/hooks/use-files';
 import { formatFileSize, type StoredFile } from '@/lib/file-storage';
@@ -82,7 +82,7 @@ const CATEGORIES: { value: Category; label: string }[] = [
 ];
 
 export function DocumentsSection({ presetId }: { presetId?: string }) {
-  const { addFile, removeFile, setActive, getByCategory } = useFiles(presetId);
+  const { addFile, removeFile, setActive, getByCategory, error, clearError } = useFiles(presetId);
   const [activeCategory, setActiveCategory] = useState<Category>('resume');
 
   const resumeFiles = getByCategory('resume');
@@ -94,6 +94,29 @@ export function DocumentsSection({ presetId }: { presetId?: string }) {
       <p className="text-[11px] text-muted-foreground/50 leading-relaxed">
         Active files are automatically attached when you fill. One active file per category.
       </p>
+
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.15 }}
+            className="overflow-hidden"
+          >
+            <div className="flex items-center justify-between gap-2 p-2 rounded-md bg-destructive/10 text-destructive text-[11px]">
+              <span>{error}</span>
+              <button
+                type="button"
+                onClick={clearError}
+                className="shrink-0 hover:opacity-70 cursor-pointer"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="space-y-3">
         <div className="flex gap-1.5">

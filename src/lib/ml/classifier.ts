@@ -1,63 +1,100 @@
 /**
- * Fine-tuned field classifier using sequence classification.
- * Loads a fine-tuned MiniLM ONNX model via Transformers.js,
- * classifies field labels into one of 53 categories with
- * softmax confidence scores.
+ * Unified multi-task model for field classification + option scoring.
+ *
+ * Uses a fine-tuned DeBERTa-v3 ONNX model with dual outputs:
+ *   - classify_logits: [B, num_categories] for field classification
+ *   - score_logits: [B, 1] for option/answer scoring
+ *
+ * Task routing via input prefix tokens: <classify>, <score>, <match>
  */
 
-import { pipeline, env } from '@huggingface/transformers';
+import { AutoTokenizer, env } from '@huggingface/transformers';
 import type { ModelStatus, FieldContext, Classification, AnswerMatch } from './types';
 
-// Local fine-tuned model for classification
-const MODEL_PATH = '/models/field-classifier/';
-// Pre-trained MiniLM for embedding similarity (answer bank matching)
-const EMBEDDING_MODEL_PATH = '/models/embeddings/';
-const ANSWER_MATCH_THRESHOLD = 0.75;
+const MODEL_PATH = '/models/unified/';
+const ANSWER_MATCH_THRESHOLD = 0.7;
+const OPTION_SCORE_THRESHOLD = 0.6;
+const MAX_LENGTH = 128;
 
 // Configure Transformers.js for extension environment
 env.allowLocalModels = true;
 env.useBrowserCache = false;
 env.allowRemoteModels = false;
-
-// Point ONNX runtime to local WASM files (CDN blocked by extension CSP)
 env.backends.onnx.wasm!.wasmPaths = chrome.runtime.getURL('/');
+env.backends.onnx.wasm!.numThreads = 1;
 
 type StatusCallback = (status: ModelStatus, progress?: number, error?: string) => void;
 
-interface ClassifierOutput {
-  label: string;
-  score: number;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Tokenizer = any;
+
+interface LabelMap {
+  label2id: Record<string, number>;
+  id2label: Record<string, string>;
 }
 
-type TextClassifier = {
-  (texts: string | string[]): Promise<ClassifierOutput[] | ClassifierOutput[][]>;
-  dispose: () => Promise<void>;
-};
-type EmbeddingOutput = { data: Float32Array }[];
-type Embedder = {
-  (texts: string[], options: Record<string, unknown>): Promise<EmbeddingOutput>;
-  dispose: () => Promise<void>;
-};
-
 /**
- * Build the input string for the classifier.
- * Must match the training-time build_input() in train.py.
+ * Build the classification input string.
+ * Must match the training-time build_classify_input() in dataset.py.
  */
-function buildInput(field: FieldContext): string {
-  const parts: string[] = [];
-  if (field.sectionHeading) parts.push(field.sectionHeading + ' :');
-  parts.push(field.label);
-  if (field.placeholder) parts.push(field.placeholder);
+/** Sanitize text for model input — strip control characters, limit length. */
+function sanitize(text: string, maxLen = 200): string {
+  // eslint-disable-next-line no-control-regex
+  return text.slice(0, maxLen).replace(/[\x00-\x1F\x7F]/g, ' ');
+}
+
+function buildClassifyInput(field: FieldContext): string {
+  const parts: string[] = ['<classify>'];
+  if (field.sectionHeading) parts.push(sanitize(field.sectionHeading) + ' :');
+  parts.push(sanitize(field.label));
+  if (field.placeholder) parts.push(sanitize(field.placeholder, 100));
   if (field.type) parts.push(`[${field.type}]`);
-  if (field.ariaLabel && field.ariaLabel !== field.label) parts.push(field.ariaLabel);
-  if (field.name) parts.push(field.name);
-  if (field.options?.length) parts.push(field.options.slice(0, 5).join(' '));
+  if (field.ariaLabel && field.ariaLabel !== field.label)
+    parts.push(sanitize(field.ariaLabel, 100));
+  if (field.name) parts.push(sanitize(field.name, 50));
+  if (field.options?.length)
+    parts.push(
+      field.options
+        .slice(0, 5)
+        .map((o) => sanitize(o, 50))
+        .join(' '),
+    );
   return parts.join(' ');
 }
 
+/**
+ * Build the option scoring input string.
+ * Must match the training-time build_score_input() in dataset.py.
+ */
+function buildScoreInput(question: string, profileValue: string, option: string): string {
+  return `<score> ${sanitize(question)} [SEP] ${sanitize(profileValue, 100)} [SEP] ${sanitize(option, 100)}`;
+}
+
+/**
+ * Build the answer bank matching input string.
+ * Must match the training-time build_match_input() in dataset.py.
+ */
+function buildMatchInput(fieldLabel: string, answerQuestion: string): string {
+  return `<match> ${sanitize(fieldLabel)} [SEP] ${sanitize(answerQuestion)}`;
+}
+
+function softmax(logits: Float32Array | number[]): number[] {
+  const max = Math.max(...logits);
+  const exps = Array.from(logits).map((x) => Math.exp(x - max));
+  const sum = exps.reduce((a, b) => a + b, 0);
+  return exps.map((e) => e / sum);
+}
+
+function sigmoid(x: number): number {
+  return 1 / (1 + Math.exp(-x));
+}
+
 export class FieldClassifier {
-  private classifier: TextClassifier | null = null;
-  private embedder: Embedder | null = null;
+  private tokenizer: Tokenizer | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ONNX Runtime session type not exported by onnxruntime-web
+  private session: any = null;
+  private labelMap: LabelMap | null = null;
+  private vocabRemap: Map<number, number> | null = null;
   private status: ModelStatus = 'idle';
 
   async load(onStatus?: StatusCallback): Promise<void> {
@@ -67,32 +104,55 @@ export class FieldClassifier {
     onStatus?.('loading', 0);
 
     try {
-      // Try WebGPU first, fall back to WASM
-      let device: 'webgpu' | 'wasm' = 'wasm';
-      try {
-        if ('gpu' in navigator) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const gpu = (navigator as any).gpu;
-          const adapter = await gpu.requestAdapter();
-          if (adapter) device = 'webgpu';
-        }
-      } catch {
-        // WebGPU not available, use WASM
-      }
-
       const modelUrl = chrome.runtime.getURL(MODEL_PATH);
 
-      this.classifier = (await pipeline('text-classification', modelUrl, {
-        local_files_only: true,
-        dtype: 'fp16',
-        device,
-        progress_callback: (progress: { progress?: number; status?: string }) => {
-          if (progress.progress != null) {
-            onStatus?.('loading', Math.round(progress.progress));
-          }
-        },
-      })) as unknown as TextClassifier;
+      // Load tokenizer
+      onStatus?.('loading', 10);
+      this.tokenizer = await AutoTokenizer.from_pretrained(modelUrl);
 
+      // Load label map
+      onStatus?.('loading', 20);
+      const labelMapUrl = chrome.runtime.getURL(MODEL_PATH + 'label_map.json');
+      const labelMapResponse = await fetch(labelMapUrl);
+      if (!labelMapResponse.ok)
+        throw new Error(`Failed to load label map: ${labelMapResponse.status}`);
+      const parsedMap = await labelMapResponse.json();
+      if (!parsedMap?.label2id || !parsedMap?.id2label || typeof parsedMap.label2id !== 'object') {
+        throw new Error('Invalid label map format');
+      }
+      this.labelMap = parsedMap as LabelMap;
+
+      // Load vocabulary remap table (maps original token IDs to compact IDs
+      // for the trimmed embedding table). If not present, model uses full vocab.
+      try {
+        const remapUrl = chrome.runtime.getURL(MODEL_PATH + 'vocab_remap.json');
+        const remapResponse = await fetch(remapUrl);
+        const remapData = await remapResponse.json();
+        if (remapData?.old_to_new) {
+          this.vocabRemap = new Map<number, number>();
+          for (const [oldId, newId] of Object.entries(remapData.old_to_new)) {
+            this.vocabRemap.set(Number(oldId), newId as number);
+          }
+        }
+      } catch {
+        this.vocabRemap = null;
+      }
+
+      // Load ONNX session directly for dual-output model
+      onStatus?.('loading', 30);
+      const ort = await import('onnxruntime-web');
+      const onnxUrl = chrome.runtime.getURL(MODEL_PATH + 'onnx/model_quantized.onnx');
+
+      const modelResponse = await fetch(onnxUrl);
+      if (!modelResponse.ok) throw new Error(`Failed to load ONNX model: ${modelResponse.status}`);
+      const modelBuffer = await modelResponse.arrayBuffer();
+      onStatus?.('loading', 70);
+
+      this.session = await ort.InferenceSession.create(modelBuffer, {
+        executionProviders: ['wasm'],
+      });
+
+      onStatus?.('loading', 100);
       this.status = 'ready';
       onStatus?.('ready');
     } catch (err) {
@@ -103,10 +163,60 @@ export class FieldClassifier {
     }
   }
 
+  /**
+   * Run inference on a batch of input strings.
+   * Returns raw outputs: [classify_logits, score_logits]
+   */
+  private async run(
+    texts: string[],
+  ): Promise<{ classifyLogits: Float32Array; scoreLogits: Float32Array; batchSize: number }> {
+    if (!this.session || !this.tokenizer) {
+      throw new Error('Model not loaded');
+    }
+
+    const encoded = this.tokenizer(texts, {
+      padding: true,
+      truncation: true,
+      max_length: MAX_LENGTH,
+    });
+
+    // Transformers.js Tensor objects are compatible with onnxruntime-web sessions
+    // but we need to ensure int64 type for the input tensors
+    const inputIdsData = encoded.input_ids.data;
+    const attMaskData = encoded.attention_mask.data;
+    const dims = encoded.input_ids.dims;
+
+    // Convert to BigInt64Array for ONNX int64 inputs.
+    // If vocab is trimmed, remap original token IDs to compact IDs.
+    const inputIdsBig = new BigInt64Array(inputIdsData.length);
+    const attMaskBig = new BigInt64Array(attMaskData.length);
+    for (let i = 0; i < inputIdsData.length; i++) {
+      const origId = Number(inputIdsData[i]);
+      const mappedId = this.vocabRemap ? (this.vocabRemap.get(origId) ?? 0) : origId;
+      inputIdsBig[i] = BigInt(mappedId);
+      attMaskBig[i] = BigInt(Number(attMaskData[i]));
+    }
+
+    // Use the ORT Tensor class from the session's runtime
+    const ort = await import('onnxruntime-web');
+    const inputIds = new ort.Tensor('int64', inputIdsBig, dims);
+    const attentionMask = new ort.Tensor('int64', attMaskBig, dims);
+
+    const results = await this.session.run({
+      input_ids: inputIds,
+      attention_mask: attentionMask,
+    });
+
+    return {
+      classifyLogits: new Float32Array(results.classify_logits.data),
+      scoreLogits: new Float32Array(results.score_logits.data),
+      batchSize: texts.length,
+    };
+  }
+
   async classify(fields: FieldContext[]): Promise<Classification[]> {
-    // Auto-load if not ready
-    if (!this.classifier || this.status !== 'ready') {
-      this.status = 'idle'; // Reset to allow reload
+    if (!this.session || this.status !== 'ready') {
+      this.status = 'idle';
       try {
         await this.load((status, progress, error) => {
           chrome.runtime
@@ -117,22 +227,22 @@ export class FieldClassifier {
         return fields.map((f) => ({ label: f.label, category: '', confidence: 0 }));
       }
     }
-    if (!this.classifier) {
-      return fields.map((f) => ({ label: f.label, category: '__no_classifier__', confidence: 0 }));
-    }
 
-    const inputs = fields.map(buildInput);
+    const inputs = fields.map(buildClassifyInput);
+    const numCategories = Object.keys(this.labelMap!.label2id).length;
 
     try {
-      const outputs = (await this.classifier(inputs)) as ClassifierOutput[] | ClassifierOutput[][];
+      const { classifyLogits } = await this.run(inputs);
 
       return fields.map((field, i) => {
-        const output = outputs[i];
-        const top = Array.isArray(output) ? output[0] : output;
+        const start = i * numCategories;
+        const logits = classifyLogits.slice(start, start + numCategories);
+        const probs = softmax(logits);
+        const maxIdx = probs.indexOf(Math.max(...probs));
         return {
           label: field.label,
-          category: top?.label ?? '',
-          confidence: top?.score ?? 0,
+          category: this.labelMap!.id2label[String(maxIdx)] ?? '',
+          confidence: probs[maxIdx] ?? 0,
         };
       });
     } catch {
@@ -141,127 +251,74 @@ export class FieldClassifier {
   }
 
   /**
-   * Match field labels against answer bank questions using embedding similarity.
-   * Returns matches above the threshold.
+   * Score each option for a field given the profile value.
+   * Returns the best matching option index and score.
    */
-  /** Lazy-load the embedding model on first answer bank use */
-  private async ensureEmbedder(): Promise<boolean> {
-    if (this.embedder) return true;
-    try {
-      let device: 'webgpu' | 'wasm' = 'wasm';
-      try {
-        if ('gpu' in navigator) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const gpu = (navigator as any).gpu;
-          const adapter = await gpu.requestAdapter();
-          if (adapter) device = 'webgpu';
-        }
-      } catch {
-        /* WASM fallback */
-      }
-
-      const embeddingModelUrl = chrome.runtime.getURL(EMBEDDING_MODEL_PATH);
-      this.embedder = (await pipeline('feature-extraction', embeddingModelUrl, {
-        device,
-        dtype: 'q8' as const,
-      })) as unknown as Embedder;
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Semantic option matching: find the best-matching option for a value
-   * using embedding cosine similarity. Used as Tier 3 fallback when
-   * fuzzy/alias/concept matching all fail for select/radio fields.
-   */
-  async matchOption(
-    value: string,
+  async scoreOptions(
+    question: string,
+    profileValue: string,
     options: string[],
-  ): Promise<{ bestIndex: number; similarity: number }> {
-    if (options.length === 0) return { bestIndex: -1, similarity: 0 };
-    if (!(await this.ensureEmbedder())) return { bestIndex: -1, similarity: 0 };
-
-    const OPTION_MATCH_THRESHOLD = 0.7;
+  ): Promise<{ bestIndex: number; score: number }> {
+    if (!this.session || this.status !== 'ready') {
+      return { bestIndex: -1, score: 0 };
+    }
+    if (options.length === 0) return { bestIndex: -1, score: 0 };
 
     try {
-      const valueOutput = await this.embedder!([value], { pooling: 'mean', normalize: true });
-      const optionOutputs = await this.embedder!(options, { pooling: 'mean', normalize: true });
-
-      const valueEmb: Float32Array = valueOutput[0]?.data
-        ? new Float32Array(valueOutput[0].data)
-        : new Float32Array(0);
+      const inputs = options.map((opt) => buildScoreInput(question, profileValue, opt));
+      const { scoreLogits } = await this.run(inputs);
 
       let bestIdx = -1;
-      let bestSim = -1;
+      let bestScore = -Infinity;
 
       for (let i = 0; i < options.length; i++) {
-        const optOut = optionOutputs[i];
-        const optEmb: Float32Array = optOut?.data
-          ? new Float32Array(optOut.data)
-          : new Float32Array(0);
-
-        let dot = 0;
-        for (let j = 0; j < valueEmb.length; j++) {
-          dot += valueEmb[j]! * optEmb[j]!;
-        }
-
-        if (dot > bestSim) {
-          bestSim = dot;
+        const score = sigmoid(scoreLogits[i]!);
+        if (score > bestScore) {
+          bestScore = score;
           bestIdx = i;
         }
       }
 
-      if (bestSim >= OPTION_MATCH_THRESHOLD && bestIdx >= 0) {
-        return { bestIndex: bestIdx, similarity: bestSim };
+      if (bestScore >= OPTION_SCORE_THRESHOLD && bestIdx >= 0) {
+        return { bestIndex: bestIdx, score: bestScore };
       }
 
-      return { bestIndex: -1, similarity: bestSim };
+      return { bestIndex: -1, score: bestScore };
     } catch {
-      return { bestIndex: -1, similarity: 0 };
+      return { bestIndex: -1, score: 0 };
     }
   }
 
+  /**
+   * Match field labels against answer bank questions using the scoring head.
+   */
   async matchAnswers(fieldLabels: string[], questions: string[]): Promise<AnswerMatch[]> {
     if (fieldLabels.length === 0 || questions.length === 0) return [];
-    if (!(await this.ensureEmbedder())) return [];
+    if (!this.session || this.status !== 'ready') return [];
 
     try {
-      const fieldOutputs = await this.embedder!(fieldLabels, { pooling: 'mean', normalize: true });
-      const questionOutputs = await this.embedder!(questions, { pooling: 'mean', normalize: true });
-
       const matches: AnswerMatch[] = [];
 
       for (let fi = 0; fi < fieldLabels.length; fi++) {
-        const fieldOut = fieldOutputs[fi];
-        const fieldEmb: Float32Array = fieldOut?.data
-          ? new Float32Array(fieldOut.data)
-          : new Float32Array(0);
+        const inputs = questions.map((q) => buildMatchInput(fieldLabels[fi]!, q));
+        const { scoreLogits } = await this.run(inputs);
 
         let bestIdx = -1;
-        let bestSim = -1;
+        let bestScore = -Infinity;
 
         for (let qi = 0; qi < questions.length; qi++) {
-          const qOut = questionOutputs[qi];
-          const qEmb: Float32Array = qOut?.data ? new Float32Array(qOut.data) : new Float32Array(0);
-
-          let dot = 0;
-          for (let i = 0; i < fieldEmb.length; i++) {
-            dot += fieldEmb[i]! * qEmb[i]!;
-          }
-
-          if (dot > bestSim) {
-            bestSim = dot;
+          const score = sigmoid(scoreLogits[qi]!);
+          if (score > bestScore) {
+            bestScore = score;
             bestIdx = qi;
           }
         }
 
-        if (bestSim >= ANSWER_MATCH_THRESHOLD && bestIdx >= 0) {
+        if (bestScore >= ANSWER_MATCH_THRESHOLD && bestIdx >= 0) {
           matches.push({
             fieldLabel: fieldLabels[fi]!,
             questionIndex: bestIdx,
-            similarity: bestSim,
+            similarity: bestScore,
           });
         }
       }
@@ -273,14 +330,12 @@ export class FieldClassifier {
   }
 
   async unload(): Promise<void> {
-    if (this.classifier) {
-      await this.classifier.dispose();
-      this.classifier = null;
+    if (this.session) {
+      await this.session.release();
+      this.session = null;
     }
-    if (this.embedder) {
-      await this.embedder.dispose();
-      this.embedder = null;
-    }
+    this.tokenizer = null;
+    this.labelMap = null;
     this.status = 'idle';
   }
 

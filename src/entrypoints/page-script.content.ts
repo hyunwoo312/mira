@@ -1,12 +1,16 @@
 /**
  * MAIN world content script — runs in the page's JavaScript context.
- * Has direct access to React internals (__reactProps$, __reactFiber$).
  *
- * Fill methods match Simplify's exact patterns:
- * - setText (react method): dispatchDual for all events + native value setter
- * - reactClick: direct React onClick handler call, .click() fallback
- * - selectCheckboxOrRadio: plain DOM events + direct property set (no React calls)
- * - setSelect (react method): dispatchDual for events + native value setter
+ * Provides form field automation by simulating user interactions:
+ * - setText: fill text inputs/textareas with full event sequence
+ * - reactClick: invoke React onClick handlers with native fallback
+ * - setChecked: toggle checkboxes/radios with proper change detection
+ * - setSelect: set native select values with event dispatch
+ *
+ * Runs in the MAIN world to access React internals (__reactProps$,
+ * __reactFiber$) needed for SPA form filling. Communicates with the
+ * content script via window.postMessage using a '__mira' protocol.
+ * No data leaves the page — all operations are local DOM manipulation.
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -18,6 +22,9 @@ export default defineContentScript({
   world: 'MAIN',
 
   main() {
+    if ((window as unknown as Record<string, unknown>).__miraPageScriptLoaded) return;
+    (window as unknown as Record<string, unknown>).__miraPageScriptLoaded = true;
+
     const PROTOCOL = '__mira';
     const EVT_OPTS = { bubbles: true, cancelable: true };
 
@@ -260,6 +267,21 @@ export default defineContentScript({
               msg.skipBlur,
             );
             reply({ success });
+            return;
+          }
+
+          case 'typeText': {
+            if (!el || !(el instanceof HTMLInputElement)) {
+              reply({ success: false });
+              return;
+            }
+            el.focus();
+            el.select();
+            document.execCommand('delete', false);
+            for (const char of String(msg.value)) {
+              document.execCommand('insertText', false, char);
+            }
+            reply({ success: el.value === msg.value });
             return;
           }
 

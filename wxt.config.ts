@@ -28,12 +28,15 @@ export default defineConfig({
       128: 'icon-128.png',
     },
     host_permissions: ['<all_urls>'],
+    // wasm-unsafe-eval is required for ONNX Runtime (ort-wasm-simd-threaded)
+    // which powers the on-device ML model for form field classification.
+    // No remote code is loaded — all WASM binaries are bundled with the extension.
     content_security_policy: {
       extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';",
     },
     web_accessible_resources: [
       {
-        resources: ['models/field-classifier/*', 'models/embeddings/*', 'models/embeddings/onnx/*'],
+        resources: ['models/unified/*', 'models/unified/onnx/*'],
         matches: ['<all_urls>'],
       },
     ],

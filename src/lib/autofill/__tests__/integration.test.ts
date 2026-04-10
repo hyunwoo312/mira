@@ -102,7 +102,7 @@ vi.mock('../bridge', () => ({
   initBridge: vi.fn(),
 }));
 
-// Mock chrome.runtime.sendMessage so ML path returns empty results
+// Mock chrome.runtime.sendMessage — ML classifies known categories
 beforeEach(() => {
   Element.prototype.scrollIntoView = function () {
     (globalThis as any).__lastScrolledElement = this;
@@ -111,7 +111,39 @@ beforeEach(() => {
     ...globalThis.chrome,
     runtime: {
       ...globalThis.chrome?.runtime,
-      sendMessage: vi.fn().mockResolvedValue({ classifications: [] }),
+      sendMessage: vi.fn().mockImplementation(async (message: any) => {
+        if (message.type === 'ML_CLASSIFY') {
+          return {
+            classifications: message.fields.map((f: any) => {
+              const label = f.label.toLowerCase();
+              if (/authorized.*work|legally.*work|work.*authorization/i.test(label))
+                return { label: f.label, category: 'workAuth', confidence: 0.95 };
+              if (/sponsorship|sponsor/i.test(label))
+                return { label: f.label, category: 'sponsorship', confidence: 0.95 };
+              if (/relocat|willing to move/i.test(label))
+                return { label: f.label, category: 'relocate', confidence: 0.92 };
+              if (/gender/i.test(label))
+                return { label: f.label, category: 'gender', confidence: 0.9 };
+              if (/race|ethnicity/i.test(label))
+                return { label: f.label, category: 'race', confidence: 0.9 };
+              if (/veteran/i.test(label))
+                return { label: f.label, category: 'veteranStatus', confidence: 0.9 };
+              if (/disability/i.test(label))
+                return { label: f.label, category: 'disabilityStatus', confidence: 0.9 };
+              if (/willing to travel/i.test(label))
+                return { label: f.label, category: 'relocate', confidence: 0.92 };
+              return { label: f.label, category: '', confidence: 0 };
+            }),
+          };
+        }
+        if (message.type === 'ML_MATCH_ANSWERS') {
+          return { matches: [] };
+        }
+        if (message.type === 'ML_SCORE_OPTIONS') {
+          return { bestIndex: -1, score: 0 };
+        }
+        return {};
+      }),
     },
   } as unknown as typeof chrome;
 });
@@ -143,6 +175,7 @@ const TEST_PROFILE: Profile = {
     {
       company: 'Acme Corp',
       title: 'Software Engineer',
+      location: '',
       current: true,
       description: '',
       startMonth: undefined,
@@ -167,10 +200,10 @@ const TEST_PROFILE: Profile = {
   workAuthorization: true,
   sponsorshipNeeded: false,
   willingToRelocate: true,
-  gender: 'Female',
-  race: 'Asian',
-  veteranStatus: 'I am not a protected veteran',
-  disabilityStatus: 'No',
+  gender: 1, // Female
+  race: 1, // Asian
+  veteranStatus: 0, // I am not a protected veteran
+  disabilityStatus: 1, // No, I do not have a disability
 };
 
 // ── Fixture Helpers ──
@@ -549,15 +582,15 @@ describe('Autofill Integration: Edge cases', () => {
     expect(input.value).toBe('');
   });
 
-  it('should correctly attribute all heuristic fills to the heuristic source', async () => {
+  it('should correctly attribute fill sources', async () => {
     buildAshbyFixture();
     const fillMap = profileToFillMap(TEST_PROFILE);
     const result = await fillPage(fillMap, []);
 
     const filledLogs = result.logs.filter((l) => l.status === 'filled');
     for (const log of filledLogs) {
-      // All fills should be from heuristic since ML returns empty
-      expect(log.source).toBe('heuristic');
+      // All fills should have a valid source
+      expect(['heuristic', 'ml', 'options', 'static-map', 'answer-bank']).toContain(log.source);
     }
   });
 });
@@ -651,11 +684,11 @@ describe('Autofill Integration: ML classification fallback', () => {
               }),
             };
           }
-          if (message.type === 'ML_MATCH_OPTION') {
-            return { bestIndex: -1, similarity: 0 };
-          }
           if (message.type === 'ML_MATCH_ANSWERS') {
             return { matches: [] };
+          }
+          if (message.type === 'ML_SCORE_OPTIONS') {
+            return { bestIndex: -1, score: 0 };
           }
           return {};
         }),
@@ -745,9 +778,6 @@ describe('Autofill Integration: Answer bank matching', () => {
               })),
             };
           }
-          if (message.type === 'ML_MATCH_OPTION') {
-            return { bestIndex: -1, similarity: 0 };
-          }
           if (message.type === 'ML_MATCH_ANSWERS') {
             return {
               matches: message.fieldLabels
@@ -759,6 +789,9 @@ describe('Autofill Integration: Answer bank matching', () => {
                 })
                 .filter(Boolean),
             };
+          }
+          if (message.type === 'ML_SCORE_OPTIONS') {
+            return { bestIndex: -1, score: 0 };
           }
           return {};
         }),

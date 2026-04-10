@@ -1,13 +1,18 @@
 import { fillPage } from '@/lib/autofill/pipeline';
 import { logger } from '@/lib/logger';
 import { initBridge } from '@/lib/autofill/bridge';
+import { detectATS } from '@/lib/autofill/scanners/index';
+import { prepareAndFillWorkdayExperience } from '@/lib/autofill/workday/experience';
 
 export default defineContentScript({
   matches: ['<all_urls>'],
   allFrames: true,
   runAt: 'document_idle',
   main() {
-    // Initialize page script bridge
+    // Prevent duplicate listeners if script is re-injected
+    if ((window as unknown as Record<string, unknown>).__miraContentLoaded) return;
+    (window as unknown as Record<string, unknown>).__miraContentLoaded = true;
+
     initBridge();
 
     let fillController: AbortController | null = null;
@@ -21,9 +26,22 @@ export default defineContentScript({
         return true;
       }
 
-      if (message.type === 'FILL') {
-        if (window !== window.top) return false;
+      if (message.type === 'DETECT_FORM') {
+        const hasForm = !!(
+          document.querySelector('[data-automation-id^="applyFlow"]') || // Workday
+          document.querySelector('[class*="fieldEntry"]') || // Ashby
+          document.querySelector('.application-question') || // Lever
+          document.querySelector('#app_body, .job-app, #application') || // Greenhouse
+          document.querySelector('#application-form, .application--form') || // Greenhouse embedded
+          document.querySelector(
+            'form[action*="greenhouse"], form[action*="lever"], form[action*="ashby"]',
+          ) // Generic ATS embedded
+        );
+        sendResponse({ hasForm, isTop: window === window.top });
+        return true;
+      }
 
+      if (message.type === 'FILL') {
         const fillMap = message.fillMap;
         if (!fillMap || typeof fillMap !== 'object' || Array.isArray(fillMap)) {
           sendResponse({
@@ -60,7 +78,33 @@ export default defineContentScript({
               .slice(0, 50)
           : [];
 
-        fillPage(fillMap as Record<string, string>, answerBank, fillController.signal)
+        const doFill = async () => {
+          // Workday: expand Add sections and fill experience entries before main pipeline
+          let preLogs: { field: string; value: string; status: string; source?: string }[] = [];
+          if (detectATS() === 'workday' && message.profile) {
+            preLogs = await prepareAndFillWorkdayExperience(
+              message.profile,
+              fillController!.signal,
+            );
+          }
+
+          const result = await fillPage(
+            fillMap as Record<string, string>,
+            answerBank,
+            fillController!.signal,
+          );
+
+          // Merge pre-fill logs into main result
+          if (preLogs.length > 0) {
+            result.logs.unshift(...(preLogs as typeof result.logs));
+            result.filled += preLogs.filter((l) => l.status === 'filled').length;
+            result.total += preLogs.length;
+          }
+
+          return result;
+        };
+
+        doFill()
           .then((result) => {
             sendResponse({ type: 'FILL_RESULT', result });
           })

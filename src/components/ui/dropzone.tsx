@@ -56,6 +56,7 @@ function Dropzone({
       className={cn(
         'flex flex-col items-center gap-2 py-6 cursor-pointer transition-colors text-center',
         'border border-dashed border-border hover:border-primary/40 hover:bg-primary/5',
+        'outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary/40',
         isDragging && 'border-primary bg-primary/5',
       )}
     >

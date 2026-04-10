@@ -10,32 +10,23 @@ import {
 import { MonthPicker } from '@/components/ui/month-picker';
 import { LedgerRow, LedgerInput } from '@/components/ui/ledger-row';
 import { cn } from '@/lib/utils';
+import {
+  VISA_TYPE_OPTIONS,
+  SECURITY_CLEARANCE_OPTIONS,
+  NOTICE_PERIOD_OPTIONS,
+  WORK_ARRANGEMENT_OPTIONS,
+  isValidIndex,
+  type FieldOption,
+} from '@/lib/field-options';
 import type { Profile } from '@/lib/schema';
 
-const NOTICE_OPTIONS = ['Immediately', '2 weeks', '1 month', '2 months', '3+ months'];
-const ARRANGEMENT_OPTIONS = ['Remote', 'Hybrid', 'On-site'];
-const VISA_OPTIONS = [
-  'US Citizen',
-  'Green Card / Permanent Resident',
-  'H-1B',
-  'L-1',
-  'O-1',
-  'TN',
-  'E-2',
-  'OPT',
-  'CPT',
-  'F-1',
-  'Other',
-];
-const CLEARANCE_OPTIONS = ['None', 'Confidential', 'Secret', 'Top Secret', 'TS/SCI'];
-
-function LedgerSelect({
+function IndexSelect({
   name,
   options,
   placeholder = 'Select...',
 }: {
   name: string;
-  options: string[];
+  options: FieldOption[];
   placeholder?: string;
 }) {
   const { control } = useFormContext<Profile>();
@@ -43,20 +34,33 @@ function LedgerSelect({
     <Controller
       name={name as keyof Profile}
       control={control}
-      render={({ field }) => (
-        <Select value={field.value as string} onValueChange={field.onChange}>
-          <SelectTrigger className="w-auto h-auto border-0 border-b-0 px-0 py-0 text-sm text-right justify-end">
-            <SelectValue placeholder={placeholder} />
-          </SelectTrigger>
-          <SelectContent>
-            {options.map((opt) => (
-              <SelectItem key={opt} value={opt}>
-                {opt}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
+      render={({ field }) => {
+        const value = field.value as number;
+        const invalid = typeof value === 'number' && value >= 0 && !isValidIndex(options, value);
+        return (
+          <Select
+            value={value >= 0 ? String(value) : '__none__'}
+            onValueChange={(v) => field.onChange(v === '__none__' ? -1 : Number(v))}
+          >
+            <SelectTrigger
+              className={cn(
+                'w-auto h-auto border-0 border-b-0 px-0 py-0 text-sm text-right justify-end',
+                invalid && 'text-destructive',
+              )}
+            >
+              <SelectValue placeholder={placeholder} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">Select...</SelectItem>
+              {options.map((opt, i) => (
+                <SelectItem key={i} value={String(i)}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        );
+      }}
     />
   );
 }
@@ -84,10 +88,10 @@ export function PreferencesSection() {
       <LedgerToggle name="workAuthorization" label="Work Authorization" />
       <LedgerToggle name="sponsorshipNeeded" label="Requires Sponsorship" />
       <LedgerRow label="Visa Type">
-        <LedgerSelect name="visaType" options={VISA_OPTIONS} />
+        <IndexSelect name="visaType" options={VISA_TYPE_OPTIONS} />
       </LedgerRow>
       <LedgerRow label="Security Clearance">
-        <LedgerSelect name="securityClearance" options={CLEARANCE_OPTIONS} />
+        <IndexSelect name="securityClearance" options={SECURITY_CLEARANCE_OPTIONS} />
       </LedgerRow>
       <LedgerRow label="Earliest Start">
         <Controller
@@ -118,7 +122,7 @@ export function PreferencesSection() {
         />
       </LedgerRow>
       <LedgerRow label="Notice Period">
-        <LedgerSelect name="noticePeriod" options={NOTICE_OPTIONS} />
+        <IndexSelect name="noticePeriod" options={NOTICE_PERIOD_OPTIONS} />
       </LedgerRow>
       <LedgerToggle name="willingToRelocate" label="Willing to Relocate" />
       <LedgerToggle name="willingToTravel" label="Willing to Travel" />
@@ -146,11 +150,11 @@ export function PreferencesSection() {
           control={control}
           render={({ field }) => (
             <div className="flex flex-wrap gap-2">
-              {ARRANGEMENT_OPTIONS.map((opt) => {
-                const selected = field.value.includes(opt);
+              {WORK_ARRANGEMENT_OPTIONS.map((opt) => {
+                const selected = field.value.includes(opt.label);
                 return (
                   <button
-                    key={opt}
+                    key={opt.label}
                     type="button"
                     aria-pressed={selected}
                     className={cn(
@@ -162,12 +166,12 @@ export function PreferencesSection() {
                     onClick={() =>
                       field.onChange(
                         selected
-                          ? field.value.filter((v: string) => v !== opt)
-                          : [...field.value, opt],
+                          ? field.value.filter((v: string) => v !== opt.label)
+                          : [...field.value, opt.label],
                       )
                     }
                   >
-                    {opt}
+                    {opt.label}
                   </button>
                 );
               })}

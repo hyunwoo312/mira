@@ -27,6 +27,7 @@ export function PresetBar({
   const [menuOpen, setMenuOpen] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [showPresetHint, setShowPresetHint] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -90,6 +91,8 @@ export function PresetBar({
         <button
           type="button"
           onClick={() => setMenuOpen(!menuOpen)}
+          onMouseEnter={() => !menuOpen && setShowPresetHint(true)}
+          onMouseLeave={() => setShowPresetHint(false)}
           aria-label="Switch profile preset"
           aria-expanded={menuOpen}
           aria-haspopup="listbox"
@@ -111,6 +114,11 @@ export function PresetBar({
             )}
           />
         </button>
+        {showPresetHint && !menuOpen && (
+          <div className="absolute top-full left-0 mt-1.5 z-10 w-[240px] px-3 py-2 rounded-lg bg-popover/95 backdrop-blur-sm border border-border/50 shadow-lg text-[11px] leading-relaxed text-foreground/60">
+            Save different profiles for different types of roles
+          </div>
+        )}
 
         <AnimatePresence>
           {menuOpen && (
@@ -231,6 +239,13 @@ export function PresetBar({
                       New preset
                     </button>
                   </div>
+                  {presets.length === 1 && (
+                    <div className="px-3 pb-2">
+                      <p className="text-[9px] text-muted-foreground/30 leading-relaxed">
+                        Presets let you save different profiles for different types of roles.
+                      </p>
+                    </div>
+                  )}
                 </>
               )}
             </motion.div>

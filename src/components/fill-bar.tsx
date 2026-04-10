@@ -22,8 +22,16 @@ export interface FillLog {
   field: string;
   value: string;
   status: 'filled' | 'skipped' | 'failed';
-  source?: 'options' | 'heuristic' | 'ml' | 'answer-bank' | 'rescan';
+  source?: 'static-map' | 'options' | 'heuristic' | 'ml' | 'answer-bank' | 'rescan';
   confidence?: number;
+  widgetType?: string;
+  category?: string;
+  sectionHeading?: string;
+  groupLabels?: string[];
+  elementHint?: string;
+  skipReason?: string;
+  failReason?: string;
+  attemptedValue?: string;
 }
 
 interface FillBarProps {
@@ -36,6 +44,8 @@ interface FillBarProps {
     total: number;
     durationMs?: number;
     mlAvailable?: boolean;
+    ats?: string;
+    totalFormElements?: number;
   } | null;
   logs?: FillLog[];
   pageUrl?: string;
@@ -43,7 +53,7 @@ interface FillBarProps {
   mlProgress?: number;
   profileReady?: boolean;
   onExport?: () => void;
-  onImport?: (file: File) => void;
+  onImport?: (file: File) => void | Promise<void>;
   onDeleteAll?: () => void;
 }
 
@@ -75,7 +85,7 @@ export function FillBar({
   useEffect(() => {
     if (result && !isLoading) {
       const show = setTimeout(() => setShowResult(true), 0);
-      const hide = setTimeout(() => setShowResult(false), 2000);
+      const hide = setTimeout(() => setShowResult(false), 10000);
       return () => {
         clearTimeout(show);
         clearTimeout(hide);
@@ -103,14 +113,29 @@ export function FillBar({
     fileInputRef.current?.click();
     setShowMenu(false);
   }, []);
-  const handleFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) onImport?.(file);
-      e.target.value = '';
-    },
-    [onImport],
-  );
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importSuccess, setImportSuccess] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setPendingFile(file);
+    }
+    e.target.value = '';
+  }, []);
+  const confirmImport = useCallback(async () => {
+    if (!pendingFile) return;
+    try {
+      setImportError(null);
+      setImportSuccess(false);
+      await onImport?.(pendingFile);
+      setImportSuccess(true);
+      setTimeout(() => setImportSuccess(false), 3000);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Import failed');
+    }
+    setPendingFile(null);
+  }, [pendingFile, onImport]);
   const handleDeleteAll = useCallback(() => {
     setShowDeleteConfirm(true);
     setShowMenu(false);
@@ -121,11 +146,62 @@ export function FillBar({
   }, [onDeleteAll]);
 
   const copyLogs = useCallback(() => {
-    const text = logs.map((l) => `[${l.status}] ${l.field}: ${l.value || '(empty)'}`).join('\n');
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [logs]);
+    // Build rich debug report for scanner debugging
+    const lines: string[] = [];
+
+    // Header
+    lines.push('=== MIRA FILL DEBUG LOG ===');
+    if (pageUrl) lines.push(`URL: ${pageUrl}`);
+    if (result) {
+      lines.push(`ATS: ${result.ats ?? 'unknown'}`);
+      lines.push(`Form elements on page: ${result.totalFormElements ?? '?'}`);
+      lines.push(`Fields scanned: ${result.total}`);
+      lines.push(
+        `Result: ${result.filled} filled, ${result.failed} failed, ${result.skipped} skipped`,
+      );
+      if (result.durationMs != null) lines.push(`Duration: ${result.durationMs}ms`);
+      lines.push(`ML: ${result.mlAvailable ? 'yes' : 'no'}`);
+    }
+    lines.push('');
+
+    // Per-field details grouped by status
+    const groups: [string, FillLog[]][] = [
+      ['FILLED', logs.filter((l) => l.status === 'filled')],
+      ['FAILED', logs.filter((l) => l.status === 'failed')],
+      ['SKIPPED', logs.filter((l) => l.status === 'skipped')],
+    ];
+
+    for (const [groupLabel, groupLogs] of groups) {
+      if (groupLogs.length === 0) continue;
+      lines.push(`--- ${groupLabel} (${groupLogs.length}) ---`);
+      for (const l of groupLogs) {
+        lines.push(`  ${l.field}`);
+        lines.push(
+          `    widget: ${l.widgetType ?? '?'}  |  category: ${l.category ?? 'none'}  |  by: ${l.source ?? '?'}${l.confidence != null ? ` (${Math.round(l.confidence * 100)}%)` : ''}`,
+        );
+        if (l.value) lines.push(`    value: ${l.value}`);
+        if (l.sectionHeading) lines.push(`    section: ${l.sectionHeading}`);
+        if (l.groupLabels && l.groupLabels.length > 0)
+          lines.push(`    options: [${l.groupLabels.join(', ')}]`);
+        if (l.elementHint) lines.push(`    element: ${l.elementHint}`);
+        if (l.attemptedValue) lines.push(`    attempted: ${l.attemptedValue}`);
+        if (l.failReason) lines.push(`    reason: ${l.failReason}`);
+        if (l.skipReason) lines.push(`    reason: ${l.skipReason}`);
+      }
+      lines.push('');
+    }
+
+    const text = lines.join('\n');
+    navigator.clipboard.writeText(text).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      },
+      () => {
+        // Clipboard API unavailable or denied — ignore silently
+      },
+    );
+  }, [logs, result, pageUrl]);
 
   const filledLogs = useMemo(() => logs.filter((l) => l.status === 'filled'), [logs]);
   const failedLogs = useMemo(() => logs.filter((l) => l.status === 'failed'), [logs]);
@@ -310,7 +386,7 @@ export function FillBar({
             !result &&
             profileReady && (
               <span className="text-[9px] text-foreground/30 tracking-wide">
-                Ashby · Greenhouse · Lever
+                Ashby · Greenhouse · Lever · Workday
               </span>
             )
           )}
@@ -361,9 +437,9 @@ export function FillBar({
             'group relative w-full py-3.5 px-4 flex justify-between items-center overflow-hidden',
             'bg-primary text-primary-foreground font-medium text-sm',
             'transition-all duration-200',
-            'cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'outline-none focus-visible:ring-2 focus-visible:ring-ring',
             isLoading && 'cursor-wait',
-            !profileReady && !result && 'opacity-40 pointer-events-none',
+            !profileReady && !result ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer',
           )}
         >
           {isLoading && (
@@ -547,8 +623,93 @@ export function FillBar({
         className="hidden"
       />
 
+      {/* Import feedback */}
+      <AnimatePresence>
+        {importError && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.15 }}
+            className="overflow-hidden px-5"
+          >
+            <div className="flex items-center justify-between gap-2 p-2 rounded-md bg-destructive/10 text-destructive text-[11px]">
+              <span>{importError}</span>
+              <button
+                type="button"
+                onClick={() => setImportError(null)}
+                className="shrink-0 hover:opacity-70 cursor-pointer"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+        {importSuccess && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.15 }}
+            className="overflow-hidden px-5"
+          >
+            <div className="flex items-center gap-2 p-2 rounded-md bg-green-600/10 text-green-600 text-[11px]">
+              <Check size={12} />
+              <span>Profile imported successfully</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Delete confirmation */}
       <AnimatePresence>
+        {pendingFile && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+            onClick={() => setPendingFile(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 8 }}
+              transition={{ duration: 0.15 }}
+              className="bg-popover border border-border rounded-lg p-5 mx-4 w-full max-w-[320px] shadow-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start gap-3 mb-5">
+                <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 shrink-0">
+                  <Upload size={16} className="text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-medium text-foreground">Import profile</h3>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    This will replace the current preset's profile with the imported data.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setPendingFile(null)}
+                  className="h-8 px-3 rounded-lg text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmImport}
+                  className="h-8 px-3 rounded-lg text-[12px] font-medium bg-primary text-primary-foreground hover:opacity-90 active:scale-[0.97] transition-all cursor-pointer"
+                >
+                  Import
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
         {showDeleteConfirm && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -686,7 +847,7 @@ function LogItem({ log, onFlag }: { log: FillLog; onFlag: (log: FillLog) => void
             className={cn(
               'shrink-0 text-[8px] px-1 py-px rounded',
               log.confidence >= 0.9
-                ? 'bg-foreground/5 text-foreground/50'
+                ? 'bg-emerald-500/10 text-emerald-600'
                 : 'bg-yellow-500/10 text-yellow-600',
             )}
           >

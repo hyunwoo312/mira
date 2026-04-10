@@ -50,6 +50,8 @@ export default defineBackground(() => {
   async function destroyOffscreen(): Promise<void> {
     if (!offscreenReady) return;
     try {
+      // Unload the ML model before closing to release WASM memory
+      await chrome.runtime.sendMessage({ type: 'OFFSCREEN_UNLOAD' }).catch(() => {});
       await chrome.offscreen.closeDocument();
     } catch {
       // Already closed
@@ -71,7 +73,21 @@ export default defineBackground(() => {
       destroyTimer = null;
     }
 
-    ensureOffscreen();
+    ensureOffscreen().then(() => {
+      // After offscreen is ready, query and relay the actual model status.
+      // The cached mlStatus may be stale if the service worker restarted.
+      chrome.runtime
+        .sendMessage({ type: 'OFFSCREEN_GET_STATUS' })
+        .then((res) => {
+          if (res?.status) {
+            mlStatus = res.status as ModelStatus;
+            port.postMessage({ type: 'ML_STATUS', status: mlStatus });
+          }
+        })
+        .catch(() => {
+          // Offscreen not ready yet — status will arrive via ML_STATUS message
+        });
+    });
 
     port.onDisconnect.addListener(() => {
       sidePanelPort = null;
@@ -122,6 +138,29 @@ export default defineBackground(() => {
         } catch (err: unknown) {
           sendResponse({
             matches: [],
+            error: err instanceof Error ? err.message : 'Unknown error',
+          });
+        }
+      })();
+      return true;
+    }
+
+    if (message.type === 'ML_SCORE_OPTIONS') {
+      (async () => {
+        try {
+          await ensureOffscreen();
+          const response = await chrome.runtime.sendMessage({
+            type: 'OFFSCREEN_SCORE_OPTIONS',
+            requestId: crypto.randomUUID(),
+            question: message.question,
+            profileValue: message.profileValue,
+            options: message.options,
+          });
+          sendResponse(response ?? { bestIndex: -1, score: 0, error: 'No response' });
+        } catch (err: unknown) {
+          sendResponse({
+            bestIndex: -1,
+            score: 0,
             error: err instanceof Error ? err.message : 'Unknown error',
           });
         }
