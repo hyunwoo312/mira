@@ -1,7 +1,8 @@
 import { useEffect, useCallback, useState, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { profileSchema, DEFAULT_PROFILE, SCHEMA_VERSION, type Profile } from '@/lib/schema';
+import { profileSchema, DEFAULT_PROFILE, type Profile } from '@/lib/schema';
+import { DROPDOWN_FIELDS, findIndex } from '@/lib/field-options';
 import {
   loadPresetStore,
   savePresetStore,
@@ -146,16 +147,23 @@ export function useProfile() {
   // Export all profile data as a JSON file download
   const exportAllData = useCallback(async () => {
     const currentStore = await loadPresetStore();
-    const blob = new Blob([JSON.stringify(currentStore, null, 2)], { type: 'application/json' });
+    const activeProfile = getActiveProfile(currentStore);
+    const presetName =
+      currentStore.presets.find((p) => p.id === currentStore.activePresetId)?.name ?? 'profile';
+    const safeName = presetName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const blob = new Blob([JSON.stringify(activeProfile, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `mira-profile-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `mira-${safeName}-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
   }, []);
 
-  // Import profile data from a JSON file
+  // Import profile data from a JSON file into the current preset.
+  // Supports two formats:
+  //   1. Full PresetStore (legacy export) — imports the first preset's profile
+  //   2. Plain Profile object — imports directly
   const importData = useCallback(
     async (file: File) => {
       const text = await file.text();
@@ -166,46 +174,59 @@ export function useProfile() {
         throw new Error('Invalid file: not valid JSON');
       }
 
-      // Validate imported data has the PresetStore shape
-      if (
-        typeof parsed !== 'object' ||
-        parsed === null ||
-        !('activePresetId' in parsed) ||
-        !('presets' in parsed) ||
-        !Array.isArray((parsed as PresetStore).presets) ||
-        (parsed as PresetStore).presets.length === 0
-      ) {
-        throw new Error('Invalid profile data: missing required fields');
+      if (typeof parsed !== 'object' || parsed === null) {
+        throw new Error('Invalid profile data');
       }
 
-      const imported = parsed as PresetStore;
+      let importedProfile: Profile;
 
-      // Validate each preset has required fields and a valid profile
-      for (const preset of imported.presets) {
-        if (typeof preset.id !== 'string' || typeof preset.name !== 'string') {
-          throw new Error('Invalid profile data: preset missing id or name');
+      // Format 1: Full PresetStore (has presets array)
+      if ('presets' in parsed && Array.isArray((parsed as PresetStore).presets)) {
+        const presets = (parsed as PresetStore).presets;
+        if (presets.length === 0) throw new Error('No presets found in file');
+
+        // Use the active preset's profile, or the first one
+        const activeId = (parsed as PresetStore).activePresetId;
+        const target = presets.find((p) => p.id === activeId) ?? presets[0]!;
+        // Migrate old string-based dropdown values to numeric indices
+        const raw = target.profile as Record<string, unknown>;
+        for (const [field, options] of Object.entries(DROPDOWN_FIELDS)) {
+          if (field in raw && typeof raw[field] === 'string') {
+            raw[field] = findIndex(options, raw[field] as string);
+          }
         }
-        const result = profileSchema.safeParse(preset.profile);
-        if (!result.success) {
-          throw new Error(`Invalid profile data in preset "${preset.name}"`);
+        const result = profileSchema.safeParse(raw);
+        if (!result.success) throw new Error('Invalid profile data in imported file');
+        importedProfile = result.data;
+      }
+      // Format 2: Plain profile object
+      else {
+        // Migrate old string-based dropdown values to numeric indices
+        const raw = parsed as Record<string, unknown>;
+        for (const [field, options] of Object.entries(DROPDOWN_FIELDS)) {
+          if (field in raw && typeof raw[field] === 'string') {
+            raw[field] = findIndex(options, raw[field] as string);
+          }
         }
-        preset.profile = result.data;
+        const result = profileSchema.safeParse(raw);
+        if (!result.success) throw new Error('Invalid profile data');
+        importedProfile = result.data;
       }
 
-      // Ensure activePresetId points to an existing preset
-      if (!imported.presets.find((p) => p.id === imported.activePresetId)) {
-        imported.activePresetId = imported.presets[0]!.id;
-      }
+      // Replace only the current preset's profile
+      if (!store) return;
+      const updated: PresetStore = {
+        ...store,
+        presets: store.presets.map((p) =>
+          p.id === store.activePresetId ? { ...p, profile: importedProfile } : p,
+        ),
+      };
 
-      // Stamp with current schema version
-      imported.version = SCHEMA_VERSION;
-
-      await savePresetStore(imported);
-      setStore(imported);
-      const profile = getActiveProfile(imported);
-      form.reset(profile);
+      await savePresetStore(updated);
+      setStore(updated);
+      form.reset(importedProfile);
     },
-    [form],
+    [form, store],
   );
 
   // Delete all extension data and re-initialize with defaults

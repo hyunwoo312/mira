@@ -1,6 +1,6 @@
 # Mira — Privacy Policy
 
-**Last updated:** March 24, 2026
+**Last updated:** April 10, 2026
 
 Mira is a browser extension that auto-fills job application forms. This policy explains what data Mira collects, how it is stored, and your rights regarding that data.
 
@@ -50,6 +50,10 @@ Mira stores only data you explicitly provide through the side panel interface:
 
 - Question and answer pairs you create for common application questions.
 
+**Application History**
+
+- A log of jobs you've filled (company, role, URL, ATS platform, fill statistics, timestamp). Capped at 1,000 entries. You can delete individual entries or clear all history at any time.
+
 ---
 
 ## 2. How Data Is Stored
@@ -88,15 +92,13 @@ Mira does **not**:
 
 ## 4. ML Model
 
-Mira includes a machine learning model (~22 MB) for classifying form fields. This model:
+Mira includes a machine learning model (~38 MB, DeBERTa-v3-xsmall) for classifying form fields and scoring option matches. This model:
 
 - Runs entirely in your browser via an offscreen document
-- Uses WebAssembly (WASM) or WebGPU for inference
+- Uses WebAssembly (WASM) for inference via ONNX Runtime
 - Is loaded from the extension's bundled files, not downloaded from the internet
 - Does not transmit any data externally
 - Is unloaded from memory when you close the side panel
-
-A second embedding model (`all-MiniLM-L6-v2`) may be downloaded once from Hugging Face for answer bank matching. After the initial download, it is cached locally in your browser. No user data is sent to Hugging Face — only the model weights are downloaded.
 
 ---
 

@@ -86,9 +86,9 @@ describe('profileToFillMap', () => {
       expect(map.preferredName).toBe('Jay');
     });
 
-    it('should fall back to firstName when preferredName is empty', () => {
+    it('should skip preferredName when empty (no fallback to firstName)', () => {
       const map = profileToFillMap(makeProfile({ preferredName: '', firstName: 'Jane' }));
-      expect(map.preferredName).toBe('Jane');
+      expect(map.preferredName).toBeUndefined();
     });
   });
 
@@ -141,11 +141,11 @@ describe('profileToFillMap', () => {
       expect(map.otherUrl).toBe('https://other.dev');
     });
 
-    it('should fall back to portfolio when additionalUrl is empty', () => {
+    it('should not fill otherUrl when only portfolio exists (no duplicate)', () => {
       const map = profileToFillMap(
         makeProfile({ additionalUrl: '', portfolio: 'https://portfolio.dev' }),
       );
-      expect(map.otherUrl).toBe('https://portfolio.dev');
+      expect(map.otherUrl).toBeUndefined();
     });
 
     it('should omit otherUrl when both are empty', () => {
@@ -293,22 +293,22 @@ describe('profileToFillMap', () => {
 
   describe('isHispanic', () => {
     it('should return Yes when race contains Hispanic', () => {
-      const map = profileToFillMap(makeProfile({ race: 'Hispanic or Latino' }));
+      const map = profileToFillMap(makeProfile({ race: 3 }));
       expect(map.isHispanic).toBe('Yes');
     });
 
     it('should return Yes when race contains Latino (case insensitive)', () => {
-      const map = profileToFillMap(makeProfile({ race: 'latino' }));
+      const map = profileToFillMap(makeProfile({ race: 3 }));
       expect(map.isHispanic).toBe('Yes');
     });
 
     it('should return No for non-Hispanic race', () => {
-      const map = profileToFillMap(makeProfile({ race: 'White' }));
+      const map = profileToFillMap(makeProfile({ race: 5 }));
       expect(map.isHispanic).toBe('No');
     });
 
     it('should return No for empty race', () => {
-      const map = profileToFillMap(makeProfile({ race: '' }));
+      const map = profileToFillMap(makeProfile({ race: -1 }));
       expect(map.isHispanic).toBe('No');
     });
   });
@@ -317,43 +317,43 @@ describe('profileToFillMap', () => {
 
   describe('lgbtq', () => {
     it('should return Yes for non-straight sexual orientation', () => {
-      const map = profileToFillMap(makeProfile({ sexualOrientation: 'Bisexual' }));
+      const map = profileToFillMap(makeProfile({ sexualOrientation: 3 }));
       expect(map.lgbtq).toBe('Yes');
     });
 
     it('should return No for straight sexual orientation', () => {
-      const map = profileToFillMap(makeProfile({ sexualOrientation: 'Straight' }));
+      const map = profileToFillMap(makeProfile({ sexualOrientation: 0 }));
       expect(map.lgbtq).toBe('No');
     });
 
     it('should return No for heterosexual sexual orientation', () => {
-      const map = profileToFillMap(makeProfile({ sexualOrientation: 'Heterosexual' }));
+      const map = profileToFillMap(makeProfile({ sexualOrientation: 0 }));
       expect(map.lgbtq).toBe('No');
     });
 
     it('should return No for prefer not to say', () => {
-      const map = profileToFillMap(makeProfile({ sexualOrientation: 'Prefer not to say' }));
+      const map = profileToFillMap(makeProfile({ sexualOrientation: 7 }));
       expect(map.lgbtq).toBe('No');
     });
 
     it('should return Yes when transgender is Yes', () => {
-      const map = profileToFillMap(makeProfile({ transgender: 'Yes' }));
+      const map = profileToFillMap(makeProfile({ transgender: 0 }));
       expect(map.lgbtq).toBe('Yes');
     });
 
     it('should return Yes for non-binary gender', () => {
-      const map = profileToFillMap(makeProfile({ gender: 'Non-binary' }));
+      const map = profileToFillMap(makeProfile({ gender: 2 }));
       expect(map.lgbtq).toBe('Yes');
     });
 
     it('should return Yes for genderqueer gender', () => {
-      const map = profileToFillMap(makeProfile({ gender: 'Genderqueer' }));
+      const map = profileToFillMap(makeProfile({ gender: 2 }));
       expect(map.lgbtq).toBe('Yes');
     });
 
     it('should return No when all identity fields are empty', () => {
       const map = profileToFillMap(
-        makeProfile({ sexualOrientation: '', transgender: '', gender: '' }),
+        makeProfile({ sexualOrientation: -1, transgender: -1, gender: -1 }),
       );
       expect(map.lgbtq).toBe('No');
     });
@@ -363,44 +363,44 @@ describe('profileToFillMap', () => {
 
   describe('communities', () => {
     it('should include Veteran when veteranStatus matches', () => {
-      const map = profileToFillMap(makeProfile({ veteranStatus: 'I am a protected veteran' }));
+      const map = profileToFillMap(makeProfile({ veteranStatus: 1 }));
       expect(map.communities).toContain('Veteran');
     });
 
     it('should not include Veteran when veteranStatus contains "not"', () => {
-      const map = profileToFillMap(makeProfile({ veteranStatus: 'I am not a protected veteran' }));
+      const map = profileToFillMap(makeProfile({ veteranStatus: 0 }));
       expect(map.communities).not.toContain('Veteran');
     });
 
     it('should include Person with disability when disabilityStatus is Yes', () => {
-      const map = profileToFillMap(makeProfile({ disabilityStatus: 'Yes' }));
+      const map = profileToFillMap(makeProfile({ disabilityStatus: 0 }));
       expect(map.communities).toContain('Person with disability');
     });
 
     it('should not include Person with disability when disabilityStatus is No', () => {
-      const map = profileToFillMap(makeProfile({ disabilityStatus: 'No' }));
+      const map = profileToFillMap(makeProfile({ disabilityStatus: 1 }));
       expect(map.communities).not.toContain('Person with disability');
     });
 
     it('should not include Person with disability when disabilityStatus contains Yes and No', () => {
       // "No, I do not..." should not match since /no/i triggers
-      const map = profileToFillMap(makeProfile({ disabilityStatus: 'No' }));
+      const map = profileToFillMap(makeProfile({ disabilityStatus: 1 }));
       expect(map.communities).not.toContain('Person with disability');
     });
 
     it('should include LGBTQ+ when lgbtq conditions are met', () => {
-      const map = profileToFillMap(makeProfile({ sexualOrientation: 'Gay' }));
+      const map = profileToFillMap(makeProfile({ sexualOrientation: 1 }));
       expect(map.communities).toContain('LGBTQ+');
     });
 
     it('should return "None of the above" when no communities match', () => {
       const map = profileToFillMap(
         makeProfile({
-          veteranStatus: 'I am not a veteran',
-          disabilityStatus: 'No',
-          sexualOrientation: 'Straight',
-          transgender: 'No',
-          gender: 'Male',
+          veteranStatus: 0,
+          disabilityStatus: 1,
+          sexualOrientation: 0,
+          transgender: 1,
+          gender: 0,
         }),
       );
       expect(map.communities).toBe('None of the above');
@@ -409,9 +409,9 @@ describe('profileToFillMap', () => {
     it('should join multiple communities with commas', () => {
       const map = profileToFillMap(
         makeProfile({
-          veteranStatus: 'I identify as a veteran',
-          disabilityStatus: 'Yes, I have a disability',
-          sexualOrientation: 'Gay',
+          veteranStatus: 1,
+          disabilityStatus: 0,
+          sexualOrientation: 1,
         }),
       );
       expect(map.communities).toBe('Veteran,Person with disability,LGBTQ+');
@@ -428,6 +428,7 @@ describe('profileToFillMap', () => {
             {
               company: 'Acme Corp',
               title: 'Engineer',
+              location: '',
               current: false,
               description: '',
               startMonth: undefined,
@@ -438,6 +439,7 @@ describe('profileToFillMap', () => {
             {
               company: 'Other Inc',
               title: 'Lead',
+              location: '',
               current: false,
               description: '',
               startMonth: undefined,
@@ -619,10 +621,10 @@ describe('profileToFillMap', () => {
       const map = profileToFillMap(
         makeProfile({
           skipEeo: false,
-          gender: 'Male',
-          race: 'White',
-          veteranStatus: 'I am not a veteran',
-          disabilityStatus: 'No',
+          gender: 0,
+          race: 5,
+          veteranStatus: 0,
+          disabilityStatus: 1,
         }),
       );
 
@@ -635,12 +637,12 @@ describe('profileToFillMap', () => {
       const map = profileToFillMap(
         makeProfile({
           skipEeo: true,
-          gender: 'Male',
-          transgender: 'No',
-          sexualOrientation: 'Straight',
-          race: 'White',
-          veteranStatus: 'I am not a veteran',
-          disabilityStatus: 'No',
+          gender: 0,
+          transgender: 1,
+          sexualOrientation: 0,
+          race: 5,
+          veteranStatus: 0,
+          disabilityStatus: 1,
         }),
       );
 
@@ -686,6 +688,11 @@ describe('profileToFillMap', () => {
   // ─── Hardcoded defaults ────────────────────────────────────────────
 
   describe('hardcoded defaults', () => {
+    it('should set referral to "No"', () => {
+      const map = profileToFillMap(makeProfile());
+      expect(map.referral).toBe('No');
+    });
+
     it('should set workedHereBefore to "I have not"', () => {
       const map = profileToFillMap(makeProfile());
       expect(map.workedHereBefore).toBe('I have not');
@@ -745,19 +752,17 @@ describe('profileToFillMap', () => {
     });
 
     it('should handle veteranStatus "I identify as a protected veteran"', () => {
-      const map = profileToFillMap(
-        makeProfile({ veteranStatus: 'I identify as a protected veteran' }),
-      );
+      const map = profileToFillMap(makeProfile({ veteranStatus: 1 }));
       expect(map.communities).toContain('Veteran');
     });
 
     it('should handle disabilityStatus "Yes, I have a disability"', () => {
-      const map = profileToFillMap(makeProfile({ disabilityStatus: 'Yes, I have a disability' }));
+      const map = profileToFillMap(makeProfile({ disabilityStatus: 0 }));
       expect(map.communities).toContain('Person with disability');
     });
 
     it('should not treat "Non-binary" gender with exact match only in regex', () => {
-      const map = profileToFillMap(makeProfile({ gender: 'Nonbinary' }));
+      const map = profileToFillMap(makeProfile({ gender: 2 }));
       expect(map.lgbtq).toBe('Yes');
     });
 

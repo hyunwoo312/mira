@@ -134,6 +134,13 @@ function WorkEntryItem({
                   {...register(`workExperience.${index}.title`)}
                 />
               </LedgerRow>
+              <LedgerRow label="Location">
+                <LedgerInput
+                  placeholder="San Francisco, CA"
+                  aria-label="Location"
+                  {...register(`workExperience.${index}.location`)}
+                />
+              </LedgerRow>
               <LedgerRow label="Start Date">
                 <MonthPicker
                   value={
@@ -237,7 +244,7 @@ export function WorkSection() {
 
   const handleAdd = () => {
     const hasCurrent = (rawEntries ?? []).some((e) => e.current);
-    append({ company: '', title: '', current: !hasCurrent, description: '' });
+    append({ company: '', title: '', location: '', current: !hasCurrent, description: '' });
     setExpandedIndex(fields.length);
   };
 

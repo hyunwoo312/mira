@@ -38,7 +38,15 @@ export type OffscreenRequest =
       questions: string[];
     }
   | { type: 'OFFSCREEN_MATCH_OPTION'; requestId: string; value: string; options: string[] }
-  | { type: 'OFFSCREEN_UNLOAD' };
+  | {
+      type: 'OFFSCREEN_SCORE_OPTIONS';
+      requestId: string;
+      question: string;
+      profileValue: string;
+      options: string[];
+    }
+  | { type: 'OFFSCREEN_UNLOAD' }
+  | { type: 'OFFSCREEN_GET_STATUS' };
 
 /** Messages sent FROM the offscreen document */
 export type OffscreenResponse =
@@ -62,7 +70,7 @@ export interface MLMatchAnswersResponse {
   error?: string;
 }
 
-/** ML semantic option matching: content script → service worker */
+/** ML semantic option matching (legacy embeddings): content script → service worker */
 export interface MLMatchOptionRequest {
   type: 'ML_MATCH_OPTION';
   value: string;
@@ -72,6 +80,20 @@ export interface MLMatchOptionRequest {
 export interface MLMatchOptionResponse {
   bestIndex: number;
   similarity: number;
+  error?: string;
+}
+
+/** ML option scoring (unified model): content script → service worker */
+export interface MLScoreOptionsRequest {
+  type: 'ML_SCORE_OPTIONS';
+  question: string;
+  profileValue: string;
+  options: string[];
+}
+
+export interface MLScoreOptionsResponse {
+  bestIndex: number;
+  score: number;
   error?: string;
 }
 

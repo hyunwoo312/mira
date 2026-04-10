@@ -3,6 +3,7 @@ import { z } from 'zod';
 const workEntrySchema = z.object({
   company: z.string().max(200).default(''),
   title: z.string().max(200).default(''),
+  location: z.string().max(200).default(''),
   startMonth: z.number().min(1).max(12).optional(),
   startYear: z.number().min(1950).max(2100).optional(),
   endMonth: z.number().min(1).max(12).optional(),
@@ -59,7 +60,6 @@ export const profileSchema = z.object({
   github: z.string().url('Invalid URL').max(500).or(z.literal('')).default(''),
   portfolio: z.string().url('Invalid URL').max(500).or(z.literal('')).default(''),
   twitter: z.string().url('Invalid URL').max(500).or(z.literal('')).default(''),
-  additionalUrlLabel: z.string().max(50).default(''),
   additionalUrl: z.string().url('Invalid URL').max(500).or(z.literal('')).default(''),
   additionalLinks: z.array(linkEntrySchema).default([]),
 
@@ -84,23 +84,24 @@ export const profileSchema = z.object({
   workArrangement: z.array(z.string()).default([]),
   earliestStartMonth: z.number().min(1).max(12).optional(),
   earliestStartYear: z.number().min(1950).max(2100).optional(),
-  noticePeriod: z.string().max(50).default(''),
-  visaType: z.string().max(50).default(''), // US Citizen, Green Card, H1B, OPT, etc.
-  securityClearance: z.string().max(50).default(''), // None, Confidential, Secret, Top Secret, TS-SCI
+  // Dropdown fields store 0-based option indices. -1 = not selected.
+  // See field-options.ts for the option definitions.
+  noticePeriod: z.number().int().min(-1).default(-1),
+  visaType: z.number().int().min(-1).default(-1),
+  securityClearance: z.number().int().min(-1).default(-1),
   smsConsent: z.boolean().default(false),
 
   // Answer Bank
   answerBank: z.array(answerEntrySchema).default([]),
 
-  // EEO
+  // EEO — 0-based option indices, -1 = not selected
   skipEeo: z.boolean().default(false),
-  gender: z.string().max(50).default(''),
-  transgender: z.string().max(50).default(''),
-  sexualOrientation: z.string().max(50).default(''),
-  race: z.string().max(100).default(''),
-  veteranStatus: z.string().max(50).default(''),
-  disabilityStatus: z.string().max(50).default(''),
-  lgbtq: z.string().max(50).default(''),
+  gender: z.number().int().min(-1).default(-1),
+  transgender: z.number().int().min(-1).default(-1),
+  sexualOrientation: z.number().int().min(-1).default(-1),
+  race: z.number().int().min(-1).default(-1),
+  veteranStatus: z.number().int().min(-1).default(-1),
+  disabilityStatus: z.number().int().min(-1).default(-1),
 });
 
 export type Profile = z.infer<typeof profileSchema>;
@@ -120,5 +121,8 @@ export const DEFAULT_PROFILE: Profile = profileSchema.parse({});
  *   1 — Initial schema (personal, links, work, education, skills, preferences, EEO)
  *   2 — Added twitter, willingToTravel, smsConsent, visaType, securityClearance
  *   3 — Added additionalLinks array
+ *   4 — Added location to workExperience entries
+ *   5 — EEO + preferences dropdown fields changed from strings to numeric indices
+ *   6 — Removed lgbtq (derived) and additionalUrlLabel (unused) fields
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 6;

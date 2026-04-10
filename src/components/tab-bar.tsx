@@ -36,7 +36,7 @@ export function TabBar({ activeSection, onTabClick }: TabBarProps) {
     const el = scrollRef.current;
     if (!el) return;
     const handler = (e: WheelEvent) => {
-      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && el.scrollWidth > el.clientWidth) {
         e.preventDefault();
         el.scrollBy({ left: e.deltaY, behavior: 'smooth' });
       }

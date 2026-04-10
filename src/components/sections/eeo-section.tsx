@@ -8,62 +8,52 @@ import {
   SelectItem,
 } from '@/components/ui/select';
 import { LedgerRow } from '@/components/ui/ledger-row';
+import { cn } from '@/lib/utils';
+import {
+  GENDER_OPTIONS,
+  TRANSGENDER_OPTIONS,
+  SEXUAL_ORIENTATION_OPTIONS,
+  RACE_OPTIONS,
+  VETERAN_STATUS_OPTIONS,
+  DISABILITY_STATUS_OPTIONS,
+  isValidIndex,
+  type FieldOption,
+} from '@/lib/field-options';
 import type { Profile } from '@/lib/schema';
 
-const GENDER_OPTIONS = ['Male', 'Female', 'Non-binary', 'Decline to self-identify'];
-const TRANSGENDER_OPTIONS = ['Yes', 'No', 'Decline to self-identify'];
-const SEXUAL_ORIENTATION_OPTIONS = [
-  'Heterosexual / Straight',
-  'Gay',
-  'Lesbian',
-  'Bisexual',
-  'Queer',
-  'Asexual',
-  'Pansexual',
-  'Prefer not to say',
-  'Not listed / Other',
-];
-const RACE_OPTIONS = [
-  'American Indian or Alaska Native',
-  'Asian',
-  'Black or African American',
-  'Hispanic or Latino',
-  'Native Hawaiian or Other Pacific Islander',
-  'White',
-  'Two or More Races',
-  'Decline to self-identify',
-];
-const VETERAN_OPTIONS = [
-  'I am not a protected veteran',
-  'I identify as a protected veteran',
-  'Decline to self-identify',
-];
-const DISABILITY_OPTIONS = [
-  'Yes, I have a disability',
-  'No, I do not have a disability',
-  'Decline to self-identify',
-];
-
-function LedgerSelect({ name, options }: { name: keyof Profile; options: string[] }) {
+function IndexSelect({ name, options }: { name: keyof Profile; options: FieldOption[] }) {
   const { control } = useFormContext<Profile>();
   return (
     <Controller
       name={name}
       control={control}
-      render={({ field }) => (
-        <Select value={field.value as string} onValueChange={field.onChange}>
-          <SelectTrigger className="w-auto h-auto border-0 border-b-0 px-0 py-0 text-sm text-right justify-end">
-            <SelectValue placeholder="Select..." />
-          </SelectTrigger>
-          <SelectContent>
-            {options.map((opt) => (
-              <SelectItem key={opt} value={opt}>
-                {opt}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
+      render={({ field }) => {
+        const value = field.value as number;
+        const invalid = typeof value === 'number' && value >= 0 && !isValidIndex(options, value);
+        return (
+          <Select
+            value={value >= 0 ? String(value) : '__none__'}
+            onValueChange={(v) => field.onChange(v === '__none__' ? -1 : Number(v))}
+          >
+            <SelectTrigger
+              className={cn(
+                'w-auto h-auto border-0 border-b-0 px-0 py-0 text-sm text-right justify-end',
+                invalid && 'text-destructive',
+              )}
+            >
+              <SelectValue placeholder="Select..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">Select...</SelectItem>
+              {options.map((opt, i) => (
+                <SelectItem key={i} value={String(i)}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        );
+      }}
     />
   );
 }
@@ -81,22 +71,22 @@ export function EeoSection() {
         />
       </LedgerRow>
       <LedgerRow label="Gender">
-        <LedgerSelect name="gender" options={GENDER_OPTIONS} />
+        <IndexSelect name="gender" options={GENDER_OPTIONS} />
       </LedgerRow>
       <LedgerRow label="Transgender">
-        <LedgerSelect name="transgender" options={TRANSGENDER_OPTIONS} />
+        <IndexSelect name="transgender" options={TRANSGENDER_OPTIONS} />
       </LedgerRow>
       <LedgerRow label="Sexual Orientation">
-        <LedgerSelect name="sexualOrientation" options={SEXUAL_ORIENTATION_OPTIONS} />
+        <IndexSelect name="sexualOrientation" options={SEXUAL_ORIENTATION_OPTIONS} />
       </LedgerRow>
       <LedgerRow label="Race / Ethnicity">
-        <LedgerSelect name="race" options={RACE_OPTIONS} />
+        <IndexSelect name="race" options={RACE_OPTIONS} />
       </LedgerRow>
       <LedgerRow label="Veteran Status">
-        <LedgerSelect name="veteranStatus" options={VETERAN_OPTIONS} />
+        <IndexSelect name="veteranStatus" options={VETERAN_STATUS_OPTIONS} />
       </LedgerRow>
       <LedgerRow label="Disability">
-        <LedgerSelect name="disabilityStatus" options={DISABILITY_OPTIONS} />
+        <IndexSelect name="disabilityStatus" options={DISABILITY_STATUS_OPTIONS} />
       </LedgerRow>
     </div>
   );

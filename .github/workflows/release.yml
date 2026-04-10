@@ -51,7 +51,7 @@ jobs:
 
       - name: Zip extension
         if: steps.check.outputs.exists == 'false'
-        run: cd .output && zip -r ../mira-chrome.zip chrome-mv3/
+        run: cd .output/chrome-mv3 && zip -r ../../mira-chrome.zip .
 
       - name: Create GitHub Release
         if: steps.check.outputs.exists == 'false'

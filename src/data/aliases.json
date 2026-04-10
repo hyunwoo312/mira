@@ -289,5 +289,36 @@
       "I do not wish to answer",
       "Choose not to disclose"
     ]
+  },
+  "fieldOfStudy": {
+    "Computer Science": [
+      "CS",
+      "Data Science",
+      "Computer Engineering",
+      "Software Engineering",
+      "Information Technology",
+      "IT",
+      "Information Systems"
+    ],
+    "Electrical Engineering": [
+      "EE",
+      "Electronics Engineering",
+      "Electrical and Computer Engineering",
+      "ECE"
+    ],
+    "Mechanical Engineering": ["ME", "Mechatronics"],
+    "Business Administration": ["Business", "Management", "BBA"],
+    "Economics": ["Econ"],
+    "Mathematics": ["Math", "Applied Mathematics", "Statistics", "Applied Math"],
+    "Physics": ["Applied Physics"],
+    "Biology": ["Biological Sciences", "Life Sciences"],
+    "Chemistry": ["Chemical Sciences"],
+    "Psychology": ["Behavioral Science"],
+    "English": ["English Literature", "Literature"],
+    "Communications": ["Communication Studies", "Media Studies"],
+    "Political Science": ["Government", "Politics", "International Relations"],
+    "Finance": ["Financial Engineering"],
+    "Accounting": ["Accountancy"],
+    "Marketing": ["Digital Marketing"]
   }
 }

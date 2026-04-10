@@ -1,9 +1,3 @@
-/**
- * Bridge between isolated content script and MAIN world page script.
- * Sends commands via window.postMessage, waits for responses.
- * Replaces CDP — no debugger permission needed.
- */
-
 const PROTOCOL = '__mira';
 let _ready = false;
 
@@ -116,6 +110,13 @@ export async function bridgeClick(el: HTMLElement): Promise<boolean> {
 export async function bridgeSetChecked(el: HTMLElement, checked: boolean): Promise<boolean> {
   const miraId = tagElement(el);
   const r = await send('setChecked', { miraId, checked });
+  return r?.success ?? false;
+}
+
+/** Type text character by character via execCommand — triggers real InputEvents */
+export async function bridgeTypeText(el: HTMLElement, value: string): Promise<boolean> {
+  const miraId = tagElement(el);
+  const r = await send('typeText', { miraId, value }, 5000);
   return r?.success ?? false;
 }
 

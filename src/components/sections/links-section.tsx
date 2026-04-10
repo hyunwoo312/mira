@@ -39,21 +39,12 @@ export function LinksSection() {
         Additional
       </span>
 
-      {/* Legacy single additional URL */}
-      <LedgerRow label="">
-        <div className="flex items-center gap-3 w-full">
-          <LedgerInput
-            placeholder="Label"
-            aria-label="Link label"
-            className="w-20 shrink-0 !text-left"
-            {...register('additionalUrlLabel')}
-          />
-          <LedgerInput
-            placeholder="https://..."
-            aria-label="Link URL"
-            {...register('additionalUrl')}
-          />
-        </div>
+      <LedgerRow label="Other">
+        <LedgerInput
+          placeholder="https://..."
+          aria-label="Other URL"
+          {...register('additionalUrl')}
+        />
       </LedgerRow>
 
       <AnimatePresence initial={false}>

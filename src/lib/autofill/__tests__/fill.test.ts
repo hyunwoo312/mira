@@ -1,11 +1,7 @@
-import {
-  fillText,
-  fillSelect,
-  fillCheckbox,
-  fillRadioGroup,
-  fillCheckboxGroup,
-  fillFile,
-} from '../fill';
+import { fillText } from '../fillers/text';
+import { fillNativeSelect as fillSelect } from '../fillers/select';
+import { fillCheckbox, fillRadioGroup, fillCheckboxGroup } from '../fillers/group';
+import { fillFile } from '../fillers/file';
 
 // ── Mock bridge module ──
 vi.mock('../bridge', () => ({
@@ -34,6 +30,7 @@ vi.mock('../bridge', () => ({
   }),
   bridgeGetSelectState: vi.fn(async () => null),
   bridgeSetSelectValue: vi.fn(async () => false),
+  bridgeTriggerChange: vi.fn(async () => true),
   isBridgeReady: vi.fn(() => true),
   initBridge: vi.fn(),
 }));
@@ -41,9 +38,8 @@ vi.mock('../bridge', () => ({
 // ── Chrome mock ──
 
 beforeEach(() => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   Element.prototype.scrollIntoView = function () {
-    (globalThis as any).__lastScrolledElement = this;
+    (globalThis as unknown as Record<string, unknown>).__lastScrolledElement = this;
   };
   globalThis.chrome = {
     ...globalThis.chrome,
@@ -192,7 +188,7 @@ describe('fillSelect', () => {
 
     const result = await fillSelect(el, 'Male');
 
-    expect(result).toEqual({ status: 'filled' });
+    expect(result.status).toBe('filled');
     expect(el.value).toBe('male');
   });
 
@@ -240,7 +236,7 @@ describe('fillSelect', () => {
 
     const result = await fillSelect(el, 'Yes');
 
-    expect(result).toEqual({ status: 'filled' });
+    expect(result.status).toBe('filled');
     expect(el.value).toBe('yes_auth');
   });
 
@@ -252,7 +248,7 @@ describe('fillSelect', () => {
 
     const result = await fillSelect(el, 'No');
 
-    expect(result).toEqual({ status: 'filled' });
+    expect(result.status).toBe('filled');
     expect(el.value).toBe('no_sponsor');
   });
 });
@@ -353,7 +349,7 @@ describe('fillRadioGroup', () => {
 
     const result = await fillRadioGroup(elements, labels, 'Female');
 
-    expect(result).toEqual({ status: 'filled' });
+    expect(result.status).toBe('filled');
     expect(elements[1]!.checked).toBe(true);
   });
 
@@ -373,7 +369,7 @@ describe('fillRadioGroup', () => {
 
     const result = await fillRadioGroup(elements, labels, 'Yes');
 
-    expect(result).toEqual({ status: 'filled' });
+    expect(result.status).toBe('filled');
     expect(elements[0]!.checked).toBe(true);
   });
 
@@ -385,7 +381,7 @@ describe('fillRadioGroup', () => {
 
     const result = await fillRadioGroup(elements, labels, 'No');
 
-    expect(result).toEqual({ status: 'filled' });
+    expect(result.status).toBe('filled');
     expect(elements[1]!.checked).toBe(true);
   });
 
@@ -475,48 +471,54 @@ describe('fillCheckboxGroup', () => {
 // ── fillFile ──
 
 describe('fillFile', () => {
-  it('should return skipped for non-file inputs', () => {
+  it('should return skipped for non-file inputs', async () => {
     const el = createInput({ type: 'text' });
 
-    const result = fillFile(el, '{}');
+    const result = await fillFile(el, '{}');
 
     expect(result).toEqual({ status: 'skipped', reason: 'wrong-type' });
   });
 
-  it('should return skipped for non-input elements', () => {
+  it('should return skipped for non-input elements', async () => {
     const div = document.createElement('div');
     document.body.appendChild(div);
 
-    const result = fillFile(div, '{}');
+    const result = await fillFile(div, '{}');
 
     expect(result).toEqual({ status: 'skipped', reason: 'wrong-type' });
   });
 
-  it('should return failed for invalid JSON', () => {
+  it('should return failed for invalid JSON', async () => {
     const el = createInput({ type: 'file' });
 
-    const result = fillFile(el, 'not json');
+    const result = await fillFile(el, 'not json');
 
     expect(result).toEqual({ status: 'failed', reason: 'element-error' });
   });
 
-  it('should return failed when data is missing', () => {
+  it('should return failed when data is missing', async () => {
     const el = createInput({ type: 'file' });
 
-    const result = fillFile(el, JSON.stringify({ name: 'test.pdf', type: 'application/pdf' }));
+    const result = await fillFile(
+      el,
+      JSON.stringify({ name: 'test.pdf', type: 'application/pdf' }),
+    );
 
     expect(result).toEqual({ status: 'failed', reason: 'element-error' });
   });
 
-  it('should return failed when name is missing', () => {
+  it('should return failed when name is missing', async () => {
     const el = createInput({ type: 'file' });
 
-    const result = fillFile(el, JSON.stringify({ data: 'dGVzdA==', type: 'application/pdf' }));
+    const result = await fillFile(
+      el,
+      JSON.stringify({ data: 'dGVzdA==', type: 'application/pdf' }),
+    );
 
     expect(result).toEqual({ status: 'failed', reason: 'element-error' });
   });
 
-  it('should set a file from valid base64 JSON data', () => {
+  it('should set a file from valid base64 JSON data', async () => {
     const el = createInput({ type: 'file' });
     const fileData = {
       name: 'resume.pdf',
@@ -524,7 +526,7 @@ describe('fillFile', () => {
       data: 'data:application/pdf;base64,dGVzdA==',
     };
 
-    const result = fillFile(el, JSON.stringify(fileData));
+    const result = await fillFile(el, JSON.stringify(fileData));
 
     // DataTransfer + el.files assignment may or may not work fully in jsdom
     // but the function should not throw
@@ -536,7 +538,7 @@ describe('fillFile', () => {
     }
   });
 
-  it('should dispatch change and input events on success', () => {
+  it('should dispatch change and input events on success', async () => {
     const el = createInput({ type: 'file' });
     const events: string[] = [];
     el.addEventListener('change', () => events.push('change'));
@@ -548,7 +550,7 @@ describe('fillFile', () => {
       data: 'dGVzdA==', // raw base64 without data URI prefix
     };
 
-    const result = fillFile(el, JSON.stringify(fileData));
+    const result = await fillFile(el, JSON.stringify(fileData));
 
     if (result.status === 'filled') {
       expect(events).toContain('change');
@@ -556,7 +558,7 @@ describe('fillFile', () => {
     }
   });
 
-  it('should handle base64 data without data URI prefix', () => {
+  it('should handle base64 data without data URI prefix', async () => {
     const el = createInput({ type: 'file' });
     const fileData = {
       name: 'test.txt',
@@ -564,12 +566,12 @@ describe('fillFile', () => {
       data: 'aGVsbG8gd29ybGQ=', // "hello world" in base64
     };
 
-    const result = fillFile(el, JSON.stringify(fileData));
+    const result = await fillFile(el, JSON.stringify(fileData));
 
     expect(result).toHaveProperty('status');
   });
 
-  it('should default to application/pdf when type is empty', () => {
+  it('should default to application/pdf when type is empty', async () => {
     const el = createInput({ type: 'file' });
     const fileData = {
       name: 'resume.pdf',
@@ -577,7 +579,7 @@ describe('fillFile', () => {
       data: 'dGVzdA==',
     };
 
-    const result = fillFile(el, JSON.stringify(fileData));
+    const result = await fillFile(el, JSON.stringify(fileData));
 
     if (result.status === 'filled' && el.files && el.files.length > 0) {
       expect(el.files[0]!.type).toBe('application/pdf');

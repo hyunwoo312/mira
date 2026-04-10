@@ -1,8 +1,3 @@
-/**
- * Stores fill feedback (misclassifications) to chrome.storage.local.
- * This data can later be exported as training data corrections.
- */
-
 const FEEDBACK_KEY = 'mira_fill_feedback';
 const MAX_ENTRIES = 200;
 

@@ -1,7 +1,7 @@
 /**
  * Offscreen document entry point.
- * Loads the ML model and handles classification requests
- * from the service worker.
+ * Loads the unified ML model and handles classification + scoring
+ * requests from the service worker.
  */
 
 import { FieldClassifier } from '@/lib/ml/classifier';
@@ -42,9 +42,20 @@ chrome.runtime.onMessage.addListener(
         return true;
 
       case 'OFFSCREEN_MATCH_OPTION':
+        // Legacy embeddings-based option matching — now routed through scoreOptions
         classifier
-          .matchOption(message.value as string, message.options as string[])
-          .then((result) => sendResponse({ requestId: message.requestId, ...result }))
+          .scoreOptions(
+            message.value as string,
+            message.value as string,
+            message.options as string[],
+          )
+          .then((result) =>
+            sendResponse({
+              requestId: message.requestId,
+              bestIndex: result.bestIndex,
+              similarity: result.score,
+            }),
+          )
           .catch((err: Error) =>
             sendResponse({
               requestId: message.requestId,
@@ -53,6 +64,28 @@ chrome.runtime.onMessage.addListener(
               error: err.message,
             }),
           );
+        return true;
+
+      case 'OFFSCREEN_SCORE_OPTIONS':
+        classifier
+          .scoreOptions(
+            message.question as string,
+            message.profileValue as string,
+            message.options as string[],
+          )
+          .then((result) => sendResponse({ requestId: message.requestId, ...result }))
+          .catch((err: Error) =>
+            sendResponse({
+              requestId: message.requestId,
+              bestIndex: -1,
+              score: 0,
+              error: err.message,
+            }),
+          );
+        return true;
+
+      case 'OFFSCREEN_GET_STATUS':
+        sendResponse({ status: classifier.getStatus() });
         return true;
 
       case 'OFFSCREEN_UNLOAD':

@@ -1,12 +1,16 @@
 # Mira
 
-Chrome extension that auto-fills job applications. Supports Ashby, Greenhouse, and Lever.
+Chrome extension that auto-fills job applications. Supports Ashby, Greenhouse, Lever, and Workday.
 
-Uses a fine-tuned MiniLM model to classify form fields and match answers. Heuristic patterns handle the obvious stuff (name, email, phone), ML handles the rest (sponsorship, consent, EEO questions).
+Uses a fine-tuned DeBERTa-v3-xsmall model to classify form fields and match answers. Heuristic patterns handle the obvious stuff (name, email, phone), ML handles the rest (sponsorship, consent, EEO questions). Everything runs locally in your browser — no data leaves your machine.
 
 ## Install
 
-### From GitHub Releases (easiest)
+### From Chrome Web Store
+
+_(Coming soon)_
+
+### From GitHub Releases
 
 1. Download the latest `mira-chrome.zip` from [Releases](https://github.com/hyunwoo312/mira/releases/latest)
 2. Unzip the file
@@ -43,7 +47,7 @@ Your profile auto-saves as you type.
 
 ### Filling Applications
 
-1. Navigate to a job application page (Ashby, Greenhouse, or Lever)
+1. Navigate to a job application page (Ashby, Greenhouse, Lever, or Workday)
 2. Open the Mira sidebar and click **Fill Application**
 3. Mira scans the form, classifies each field, and fills them automatically
 4. Review the fill log to see what was filled, skipped, or failed
@@ -54,14 +58,21 @@ Use presets to maintain separate profiles (e.g., "SWE" and "PM"). Each preset ha
 
 ### ML Model
 
-The field classifier runs entirely in your browser — no data leaves your machine. The model loads when you open the sidebar and unloads when you close it to save memory.
+The field classifier runs entirely in your browser via WebAssembly (ONNX Runtime). No data leaves your machine. The model loads when you open the sidebar and unloads when you close it to save memory.
 
 ## Development
 
 ```bash
 pnpm dev          # hot-reload dev server
 pnpm build        # production build
+pnpm test         # run tests
+pnpm typecheck    # type check
+pnpm lint         # lint
 ```
+
+### ML Training
+
+The training pipeline lives in `ml/`. See `ml/train_multitask.py` for the multi-task training script and `ml/export_multitask.py` for ONNX export with vocab trimming.
 
 ## License
 

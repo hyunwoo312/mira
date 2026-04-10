@@ -37,13 +37,90 @@ function createDefaultStore(): PresetStore {
 
 type Migration = (profile: Record<string, unknown>) => Record<string, unknown>;
 
+const DROPDOWN_STRING_TO_INDEX: Record<string, string[]> = {
+  gender: ['Male', 'Female', 'Non-binary', 'Decline to self-identify'],
+  transgender: ['Yes', 'No', 'Decline to self-identify'],
+  sexualOrientation: [
+    'Heterosexual / Straight',
+    'Gay',
+    'Lesbian',
+    'Bisexual',
+    'Queer',
+    'Asexual',
+    'Pansexual',
+    'Prefer not to say',
+    'Not listed / Other',
+  ],
+  race: [
+    'American Indian or Alaska Native',
+    'Asian',
+    'Black or African American',
+    'Hispanic or Latino',
+    'Native Hawaiian or Other Pacific Islander',
+    'White',
+    'Two or More Races',
+    'Decline to self-identify',
+  ],
+  veteranStatus: [
+    'I am not a protected veteran',
+    'I identify as a protected veteran',
+    'Decline to self-identify',
+  ],
+  disabilityStatus: [
+    'Yes, I have a disability',
+    'No, I do not have a disability',
+    'Decline to self-identify',
+  ],
+  visaType: [
+    'US Citizen',
+    'Green Card / Permanent Resident',
+    'H-1B',
+    'L-1',
+    'O-1',
+    'TN',
+    'E-2',
+    'OPT',
+    'CPT',
+    'F-1',
+    'Other',
+  ],
+  securityClearance: ['None', 'Confidential', 'Secret', 'Top Secret', 'TS/SCI'],
+  noticePeriod: ['Immediately', '2 weeks', '1 month', '2 months', '3+ months'],
+};
+
+function migrateStringToIndex(value: unknown, options: string[]): number {
+  if (typeof value === 'number') return value; // already migrated
+  if (typeof value !== 'string' || !value) return -1;
+  const lower = value.toLowerCase().trim();
+  const exact = options.findIndex((o) => o.toLowerCase() === lower);
+  if (exact >= 0) return exact;
+  // Partial match for old values that may differ slightly
+  const partial = options.findIndex(
+    (o) => lower.includes(o.toLowerCase()) || o.toLowerCase().includes(lower),
+  );
+  return partial >= 0 ? partial : -1;
+}
+
 const MIGRATIONS: Record<number, Migration> = {
   // v1 → v2: Added twitter, willingToTravel, smsConsent, visaType, securityClearance.
-  // All have defaults in the schema, so no explicit transform needed —
-  // safeParse fills them in. This entry exists to document the change.
   1: (p) => p,
   // v2 → v3: Added additionalLinks array. Default [] via safeParse.
   2: (p) => p,
+  // v3 → v4: Added location to workExperience entries. Default '' via safeParse.
+  3: (p) => p,
+  // v4 → v5: EEO + preferences dropdown fields changed from strings to numeric indices.
+  4: (p) => {
+    const migrated = { ...p };
+    for (const [field, options] of Object.entries(DROPDOWN_STRING_TO_INDEX)) {
+      migrated[field] = migrateStringToIndex(p[field], options);
+    }
+    return migrated;
+  },
+  // v5 → v6: Removed lgbtq and additionalUrlLabel fields.
+  5: (p) => {
+    const { lgbtq: _, additionalUrlLabel: __, ...rest } = p;
+    return rest;
+  },
 };
 
 function migrateProfile(profile: Record<string, unknown>, fromVersion: number): Profile {

@@ -6,11 +6,13 @@ node_modules/
 .output/
 dist/
 
-# ML training pipeline (pre-trained models are in public/)
+# ML training pipeline (production model is in public/models/)
 /ml/
 /data/
-/scripts/
+/scripts/*
+!/scripts/postbuild.cjs
 /docs/
+FEEDBACK.md
 
 # Environment
 .env
