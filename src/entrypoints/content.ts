@@ -3,11 +3,13 @@ import { logger } from '@/lib/logger';
 import { initBridge } from '@/lib/autofill/bridge';
 import { detectATS } from '@/lib/autofill/scanners/index';
 import { prepareAndFillWorkdayExperience } from '@/lib/autofill/workday/experience';
+import type { FillOverlay } from '@/lib/overlay/fill-overlay';
 
 export default defineContentScript({
   matches: ['<all_urls>'],
   allFrames: true,
   runAt: 'document_idle',
+  registration: 'runtime',
   main() {
     // Prevent duplicate listeners if script is re-injected
     if ((window as unknown as Record<string, unknown>).__miraContentLoaded) return;
@@ -20,7 +22,34 @@ export default defineContentScript({
       fillController?.abort();
     });
 
+    // Overlay — lazy-loaded, top frame only
+    let overlay: FillOverlay | null = null;
+    async function getOverlay(): Promise<FillOverlay | null> {
+      if (window !== window.top) return null;
+      if (!overlay) {
+        const mod = await import('@/lib/overlay/fill-overlay');
+        overlay = new mod.FillOverlay();
+      }
+      return overlay;
+    }
+
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      // ── Overlay messages ──
+      if (message.type === 'FILL_OVERLAY_SHOW') {
+        getOverlay().then((o) => o?.show(message.phase));
+        return false;
+      }
+      if (message.type === 'FILL_OVERLAY_RESULT') {
+        if (message.result && Array.isArray(message.logs)) {
+          getOverlay().then((o) => o?.showResult(message.result, message.logs));
+        }
+        return false;
+      }
+      if (message.type === 'FILL_OVERLAY_DISMISS') {
+        overlay?.dismiss();
+        return false;
+      }
+
       if (message.type === 'PING') {
         sendResponse({ type: 'PONG' });
         return true;
@@ -28,13 +57,15 @@ export default defineContentScript({
 
       if (message.type === 'DETECT_FORM') {
         const hasForm = !!(
-          document.querySelector('[data-automation-id^="applyFlow"]') || // Workday
-          document.querySelector('[class*="fieldEntry"]') || // Ashby
-          document.querySelector('.application-question') || // Lever
-          document.querySelector('#app_body, .job-app, #application') || // Greenhouse
-          document.querySelector('#application-form, .application--form') || // Greenhouse embedded
-          document.querySelector(
-            'form[action*="greenhouse"], form[action*="lever"], form[action*="ashby"]',
+          (
+            document.querySelector('[data-automation-id^="applyFlow"]') || // Workday
+            document.querySelector('[class*="fieldEntry"]') || // Ashby
+            document.querySelector('.application-question') || // Lever
+            document.querySelector('#app_body, .job-app, #application') || // Greenhouse
+            document.querySelector('#application-form, .application--form') || // Greenhouse embedded
+            document.querySelector(
+              'form[action*="greenhouse"], form[action*="lever"], form[action*="ashby"]',
+            )
           ) // Generic ATS embedded
         );
         sendResponse({ hasForm, isTop: window === window.top });

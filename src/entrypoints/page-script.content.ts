@@ -20,6 +20,7 @@ export default defineContentScript({
   allFrames: true,
   runAt: 'document_start',
   world: 'MAIN',
+  registration: 'runtime',
 
   main() {
     if ((window as unknown as Record<string, unknown>).__miraPageScriptLoaded) return;

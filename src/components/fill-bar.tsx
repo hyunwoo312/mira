@@ -12,11 +12,18 @@ import {
   RotateCcw,
   ArrowRight,
   Loader2,
+  Star,
+  FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { saveFeedback } from '@/lib/autofill/feedback';
-import { useUpdateCheck } from '@/hooks/use-update-check';
-import type { ModelStatus } from '@/lib/ml/types';
+import {
+  CWS_URL,
+  FILL_COUNT_KEY,
+  RATE_DISMISSED_KEY,
+  CHANGELOG_KEY,
+  CHANGELOG,
+} from '@/lib/constants';
 
 export interface FillLog {
   field: string;
@@ -49,8 +56,6 @@ interface FillBarProps {
   } | null;
   logs?: FillLog[];
   pageUrl?: string;
-  mlStatus?: ModelStatus;
-  mlProgress?: number;
   profileReady?: boolean;
   onExport?: () => void;
   onImport?: (file: File) => void | Promise<void>;
@@ -65,21 +70,55 @@ export function FillBar({
   result,
   logs = [],
   pageUrl,
-  mlStatus = 'idle',
-  mlProgress = 0,
   profileReady = true,
   onExport,
   onImport,
   onDeleteAll,
 }: FillBarProps) {
-  const { updateAvailable, releasesUrl } = useUpdateCheck();
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showResult, setShowResult] = useState(false);
+  const [showRateBanner, setShowRateBanner] = useState(false);
+  const [showChangelogBanner, setShowChangelogBanner] = useState(false);
+  const [showChangelogModal, setShowChangelogModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Check for rate prompt and changelog banner on mount
+  useEffect(() => {
+    chrome.storage.local.get([FILL_COUNT_KEY, RATE_DISMISSED_KEY, CHANGELOG_KEY]).then((data) => {
+      const count = (data[FILL_COUNT_KEY] as number) ?? 0;
+      const dismissed = data[RATE_DISMISSED_KEY] as boolean;
+      if (count >= 5 && !dismissed) setShowRateBanner(true);
+
+      const clVersion = data[CHANGELOG_KEY] as string | undefined;
+      if (clVersion && CHANGELOG[clVersion]) {
+        setShowChangelogBanner(true);
+      }
+    });
+  }, []);
+
+  const dismissRateBanner = useCallback(() => {
+    setShowRateBanner(false);
+    chrome.storage.local.set({ [RATE_DISMISSED_KEY]: true });
+  }, []);
+
+  const dismissChangelogBanner = useCallback(() => {
+    setShowChangelogBanner(false);
+    chrome.storage.local.remove(CHANGELOG_KEY);
+  }, []);
+
+  const handleRate = useCallback(() => {
+    window.open(CWS_URL, '_blank');
+    setShowMenu(false);
+  }, []);
+
+  const handleChangelog = useCallback(() => {
+    setShowChangelogModal(true);
+    setShowMenu(false);
+  }, []);
 
   // Show result count briefly, then morph to Re-fill
   useEffect(() => {
@@ -337,42 +376,18 @@ export function FillBar({
       </AnimatePresence>
 
       <div className={cn('px-5 py-4', expanded && 'border-t border-foreground/10')}>
-        <div className="flex justify-between items-center mb-3">
-          <div className="flex items-center gap-2">
-            <div
-              aria-hidden="true"
-              className={cn(
-                'w-2 h-2 rounded-full transition-colors',
-                isLoading && 'bg-yellow-500 animate-pulse',
-                !isLoading && result && resultColor === 'green' && 'bg-green-600',
-                !isLoading && result && resultColor === 'yellow' && 'bg-yellow-500',
-                !isLoading && result && resultColor === 'red' && 'bg-destructive',
-                !isLoading && !result && mlStatus === 'ready' && 'bg-green-600 animate-pulse',
-                !isLoading && !result && mlStatus === 'loading' && 'bg-yellow-500 animate-pulse',
-                !isLoading && !result && mlStatus === 'error' && 'bg-destructive',
-                !isLoading && !result && mlStatus === 'idle' && 'bg-foreground/20',
-              )}
-            />
+        {result && !isLoading && (
+          <div className="flex justify-between items-center mb-3">
             <span
               className="text-[10px] uppercase tracking-widest font-medium text-foreground/60"
               role="status"
             >
-              {isLoading
-                ? 'Filling Application'
-                : result
-                  ? resultColor === 'green'
-                    ? 'Fill Complete'
-                    : resultColor === 'yellow'
-                      ? 'Partially Filled'
-                      : 'Fill Issues'
-                  : !profileReady
-                    ? 'Complete Profile'
-                    : mlStatus === 'loading'
-                      ? `Loading Model ${mlProgress}%`
-                      : 'Ready to Autofill'}
+              {resultColor === 'green'
+                ? 'Fill Complete'
+                : resultColor === 'yellow'
+                  ? 'Partially Filled'
+                  : 'Fill Issues'}
             </span>
-          </div>
-          {result && !isLoading ? (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -381,16 +396,8 @@ export function FillBar({
               {result.filled}
               <span className="text-foreground/35">/{result.total}</span>
             </motion.div>
-          ) : (
-            !isLoading &&
-            !result &&
-            profileReady && (
-              <span className="text-[9px] text-foreground/30 tracking-wide">
-                Ashby · Greenhouse · Lever · Workday
-              </span>
-            )
-          )}
-        </div>
+          </div>
+        )}
 
         <AnimatePresence>
           {result && !isLoading && (
@@ -425,6 +432,39 @@ export function FillBar({
                   className="h-full rounded-full bg-yellow-500/60"
                 />
               )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {showRateBanner && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.15 }}
+              className="overflow-hidden mb-3"
+            >
+              <div className="flex items-center justify-between gap-2 p-2 rounded-md bg-primary/5 text-[11px]">
+                <span className="text-foreground/60">
+                  Enjoying Mira?{' '}
+                  <a
+                    href={CWS_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline cursor-pointer"
+                  >
+                    Leave a rating
+                  </a>
+                </span>
+                <button
+                  type="button"
+                  onClick={dismissRateBanner}
+                  className="shrink-0 text-foreground/30 hover:text-foreground/60 cursor-pointer"
+                >
+                  <X size={12} />
+                </button>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -568,19 +608,22 @@ export function FillBar({
                 {expanded ? 'Hide Log' : 'View Log'}
               </button>
             )}
-            <span className="text-[10px] uppercase tracking-widest font-medium leading-none text-foreground/50">
+            <button
+              type="button"
+              onClick={() => {
+                setShowChangelogModal(true);
+                if (showChangelogBanner) dismissChangelogBanner();
+              }}
+              className={cn(
+                'text-[10px] uppercase tracking-widest font-medium leading-none transition-colors cursor-pointer',
+                showChangelogBanner
+                  ? 'text-green-600 animate-pulse'
+                  : 'text-foreground/50 hover:text-foreground/70',
+              )}
+            >
               v{chrome.runtime.getManifest().version}
-            </span>
-            {updateAvailable && (
-              <a
-                href={releasesUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[10px] uppercase tracking-widest font-medium leading-none text-green-600 hover:underline cursor-pointer"
-              >
-                Update available
-              </a>
-            )}
+              {showChangelogBanner ? ' — new' : ''}
+            </button>
           </div>
           <div className="relative" ref={menuRef}>
             <button
@@ -602,6 +645,8 @@ export function FillBar({
                 >
                   <MenuItem icon={Download} label="Export profile" onClick={handleExport} />
                   <MenuItem icon={Upload} label="Import profile" onClick={handleImportClick} />
+                  <MenuItem icon={FileText} label="Changelog" onClick={handleChangelog} />
+                  <MenuItem icon={Star} label="Rate this extension" onClick={handleRate} />
                   <MenuItem
                     icon={Trash2}
                     label="Delete all data"
@@ -752,6 +797,66 @@ export function FillBar({
                   className="h-8 px-3 rounded-lg text-[12px] font-medium bg-destructive text-white hover:opacity-90 active:scale-[0.97] transition-all cursor-pointer"
                 >
                   Delete everything
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Changelog modal */}
+      <AnimatePresence>
+        {showChangelogModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+            onClick={() => setShowChangelogModal(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 8 }}
+              transition={{ duration: 0.15 }}
+              className="bg-popover border border-border rounded-lg p-5 mx-4 w-full max-w-[320px] shadow-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start gap-3 mb-4">
+                <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 shrink-0">
+                  <FileText size={16} className="text-primary" />
+                </div>
+                <h3 className="text-sm font-medium text-foreground pt-1">Changelog</h3>
+              </div>
+              <div className="space-y-3 max-h-[50vh] overflow-y-auto">
+                {Object.entries(CHANGELOG)
+                  .sort(([a], [b]) => b.localeCompare(a, undefined, { numeric: true }))
+                  .map(([version, entries]) => (
+                    <div key={version}>
+                      <span className="text-[10px] font-semibold uppercase tracking-widest text-foreground/50">
+                        v{version}
+                      </span>
+                      <ul className="mt-1 space-y-0.5">
+                        {entries.map((entry, i) => (
+                          <li
+                            key={i}
+                            className="text-[11px] text-foreground/70 pl-3 relative before:content-[''] before:absolute before:left-0 before:top-[7px] before:w-1 before:h-1 before:rounded-full before:bg-foreground/20"
+                          >
+                            {entry}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+              </div>
+              <div className="flex justify-end mt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowChangelogModal(false)}
+                  className="h-8 px-3 rounded-lg text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer"
+                >
+                  Close
                 </button>
               </div>
             </motion.div>
