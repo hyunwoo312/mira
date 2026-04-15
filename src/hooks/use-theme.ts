@@ -16,6 +16,21 @@ export function useTheme() {
         document.documentElement.classList.remove('dark');
       }
     });
+
+    // Listen for external theme changes (e.g., overlay toggle)
+    const listener = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area === 'local' && changes[STORAGE_KEY]) {
+        const newTheme = changes[STORAGE_KEY].newValue as Theme;
+        setThemeState(newTheme);
+        if (newTheme === 'dark') {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      }
+    };
+    chrome.storage.onChanged.addListener(listener);
+    return () => chrome.storage.onChanged.removeListener(listener);
   }, []);
 
   const setTheme = useCallback((t: Theme) => {

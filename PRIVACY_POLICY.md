@@ -70,12 +70,12 @@ All data is stored in `chrome.storage.local`, a sandboxed storage area provided 
 
 ## 3. How Data Is Used
 
-Your profile data is used for one purpose: **filling job application forms when you click the Fill button.**
+Your profile data is used for one purpose: **filling job application forms when you trigger a fill** — via the Fill button in the side panel, the right-click context menu ("Mira: Auto-fill"), or the keyboard shortcut (Ctrl+Shift+F).
 
 Specifically:
 
-- When you click Fill, your profile is converted to a flat map of field categories and values.
-- The content script scans the current page for form fields and matches them to your profile.
+- When you trigger a fill, your profile is converted to a flat map of field categories and values.
+- The content script is injected on demand (only when you fill) and scans the current page for form fields, matching them to your profile.
 - Matched fields are filled with your stored values.
 - An ML model (running locally in your browser) classifies unrecognized fields. This model runs entirely offline — no data is sent to any server.
 

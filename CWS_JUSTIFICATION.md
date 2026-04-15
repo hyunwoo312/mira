@@ -8,11 +8,11 @@ This document provides context for Chrome Web Store reviewers on Mira's permissi
 
 Mira is a job application auto-filler. Application forms appear on thousands of different employer domains — there's no fixed set of URLs we can pre-declare. The four ATS platforms we support (Greenhouse, Lever, Ashby, Workday) are frequently embedded on company career pages via iframes, meaning the form may load on any arbitrary domain.
 
-The content script is registered with `allFrames: true` to detect forms inside iframes, but it remains dormant until the user explicitly initiates a fill from the sidepanel. No background scanning or data collection occurs.
+Content scripts are **not auto-injected on any page**. They use `registration: 'runtime'` and are only injected programmatically via `chrome.scripting.executeScript` when the user explicitly triggers a fill (via sidepanel button, context menu, or keyboard shortcut). No code runs on any page until the user takes action. No background scanning or data collection occurs.
 
 ### `scripting`
 
-Used to programmatically inject the content script into frames that weren't present at page load (dynamically created iframes). This is necessary because ATS platforms like Workday and iCIMS load their application forms in iframes created via JavaScript after the initial page load.
+Content scripts are injected on-demand via `chrome.scripting.executeScript` only when the user triggers a fill. This is the sole injection mechanism — there are no manifest-declared content scripts. The `scripting` permission is required to inject into all frames (`allFrames: true`), including dynamically created iframes used by ATS platforms like Workday.
 
 ### `unlimitedStorage`
 
@@ -20,7 +20,15 @@ The extension bundles an ONNX machine learning model (~49MB including tokenizer)
 
 ### `offscreen`
 
-Chrome MV3 does not allow WASM execution in service workers. The offscreen document hosts the ONNX Runtime session for ML inference, created when the sidepanel opens and destroyed when it closes.
+Chrome MV3 does not allow WASM execution in service workers. The offscreen document hosts the ONNX Runtime session for ML inference, created lazily on the first fill request and destroyed after 5 minutes of inactivity via `chrome.alarms`.
+
+### `contextMenus`
+
+Provides a right-click "Mira: Auto-fill" context menu item so users can trigger form filling without opening the sidepanel. If the user has multiple profile presets, sub-items are shown for each preset.
+
+### `alarms`
+
+Used to manage the ML model idle timeout. After 5 minutes of no fill activity, an alarm fires to destroy the offscreen document and release WASM memory. `chrome.alarms` is used instead of `setTimeout` because service worker timers are lost when Chrome puts the worker to sleep.
 
 ## Content Security Policy
 

@@ -8,7 +8,7 @@ Uses a fine-tuned DeBERTa-v3-xsmall model to classify form fields and match answ
 
 ### From Chrome Web Store
 
-_(Coming soon)_
+[Install Mira from the Chrome Web Store](https://chromewebstore.google.com/detail/nmanfejonnmcnldcpbjhcglbbhdglbpa)
 
 ### From GitHub Releases
 
@@ -48,9 +48,12 @@ Your profile auto-saves as you type.
 ### Filling Applications
 
 1. Navigate to a job application page (Ashby, Greenhouse, Lever, or Workday)
-2. Open the Mira sidebar and click **Fill Application**
+2. Fill using any of these methods:
+   - Click **Fill Application** in the Mira side panel
+   - Right-click the page and select **Mira: Auto-fill**
+   - Press **Ctrl+Shift+F** (Windows) or **Cmd+Shift+F** (Mac)
 3. Mira scans the form, classifies each field, and fills them automatically
-4. Review the fill log to see what was filled, skipped, or failed
+4. A floating overlay shows fill progress — expand the log for details
 
 ### Multiple Profiles
 
@@ -58,7 +61,7 @@ Use presets to maintain separate profiles (e.g., "SWE" and "PM"). Each preset ha
 
 ### ML Model
 
-The field classifier runs entirely in your browser via WebAssembly (ONNX Runtime). No data leaves your machine. The model loads when you open the sidebar and unloads when you close it to save memory.
+The field classifier runs entirely in your browser via WebAssembly (ONNX Runtime). No data leaves your machine. The model loads on your first fill and unloads after 5 minutes of inactivity to save memory.
 
 ## Development
 

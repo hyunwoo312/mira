@@ -212,15 +212,34 @@ export async function loadApplications(): Promise<ApplicationEntry[]> {
   return entries as ApplicationEntry[];
 }
 
+// Serialize concurrent saves to prevent race conditions
+let saveLock: Promise<void> = Promise.resolve();
+
 /** Save an application entry, deduplicating multi-page forms. */
 export async function saveApplication(entry: Omit<ApplicationEntry, 'id'>): Promise<void> {
+  const release = saveLock;
+  let resolve: () => void;
+  saveLock = new Promise<void>((r) => {
+    resolve = r;
+  });
+  await release;
+
+  try {
+    await saveApplicationInner(entry);
+  } finally {
+    resolve!();
+  }
+}
+
+async function saveApplicationInner(entry: Omit<ApplicationEntry, 'id'>): Promise<void> {
   const entries = await loadApplications();
   const ats = typeof entry.ats === 'string' ? entry.ats : undefined;
   const jobId = extractJobId(entry.url, ats);
   const now = entry.timestamp;
 
-  // Check for duplicate: same job ID within dedup window
+  // Check for duplicate: exact same URL (always dedup) or same job ID within dedup window
   const existingIdx = entries.findIndex((e) => {
+    if (e.url === entry.url) return true;
     if (Math.abs(e.timestamp - now) > DEDUP_WINDOW_MS) return false;
     return extractJobId(e.url, ats) === jobId;
   });
@@ -283,4 +302,38 @@ export async function deleteApplication(id: string): Promise<void> {
 /** Clear all application history. */
 export async function clearApplications(): Promise<void> {
   await chrome.storage.local.remove(STORAGE_KEY);
+}
+
+/** Get fill counts per day for the last 7 days. */
+export function getWeeklyStats(entries: ApplicationEntry[]): { day: string; count: number }[] {
+  const now = new Date();
+  const days: { day: string; count: number }[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    const label = d.toLocaleDateString('en-US', { weekday: 'short' });
+    const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const dayEnd = dayStart + 24 * 60 * 60 * 1000;
+    const count = entries.filter((e) => e.timestamp >= dayStart && e.timestamp < dayEnd).length;
+    days.push({ day: label, count });
+  }
+  return days;
+}
+
+/** Get count of applications per ATS platform. */
+export function getATSBreakdown(entries: ApplicationEntry[]): { ats: string; count: number }[] {
+  const map = new Map<string, number>();
+  for (const e of entries) {
+    const ats = e.ats || 'generic';
+    map.set(ats, (map.get(ats) ?? 0) + 1);
+  }
+  return Array.from(map.entries())
+    .map(([ats, count]) => ({ ats, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
+/** Count applications from the last 30 days. */
+export function getMonthlyCount(entries: ApplicationEntry[]): number {
+  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  return entries.filter((e) => e.timestamp >= cutoff).length;
 }

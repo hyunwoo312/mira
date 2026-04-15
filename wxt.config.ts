@@ -9,7 +9,8 @@ export default defineConfig({
   }),
   manifest: {
     name: 'Mira',
-    description: 'Job application auto-fill',
+    description:
+      'Auto-fill job applications on Ashby, Greenhouse, Lever, and Workday with on-device ML.',
     permissions: [
       'activeTab',
       'tabs',
@@ -19,7 +20,18 @@ export default defineConfig({
       'unlimitedStorage',
       'scripting',
       'webNavigation',
+      'contextMenus',
+      'alarms',
     ],
+    commands: {
+      'trigger-fill': {
+        suggested_key: { default: 'Ctrl+Shift+F', mac: 'Command+Shift+F' },
+        description: 'Auto-fill with active profile',
+      },
+    },
+    action: {
+      default_title: 'Mira',
+    },
     icons: {
       16: 'icon-16.png',
       32: 'icon-32.png',
@@ -36,7 +48,7 @@ export default defineConfig({
     },
     web_accessible_resources: [
       {
-        resources: ['models/unified/*', 'models/unified/onnx/*'],
+        resources: ['models/unified/*', 'models/unified/onnx/*', 'assets/*.ttf'],
         matches: ['<all_urls>'],
       },
     ],

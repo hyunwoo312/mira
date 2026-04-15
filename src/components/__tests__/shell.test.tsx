@@ -16,6 +16,7 @@ vi.mock('@/hooks/use-profile', async () => {
         lastSaved: 0,
         presets: [{ id: '1', name: 'Default' }],
         activePresetId: '1',
+        saveNow: vi.fn(),
         switchPreset: vi.fn(),
         addNewPreset: vi.fn(),
         removePreset: vi.fn(),
@@ -28,6 +29,14 @@ vi.mock('@/hooks/use-profile', async () => {
   };
 });
 
+vi.mock('@/hooks/use-theme', () => ({
+  useTheme: () => ({
+    theme: 'light',
+    setTheme: vi.fn(),
+    toggle: vi.fn(),
+  }),
+}));
+
 vi.mock('@/hooks/use-fill', () => ({
   useFill: () => ({
     isLoading: false,
@@ -35,13 +44,6 @@ vi.mock('@/hooks/use-fill', () => ({
     logs: [],
     pageUrl: '',
     fill: vi.fn(),
-  }),
-}));
-
-vi.mock('@/hooks/use-ml-status', () => ({
-  useMLStatus: () => ({
-    mlStatus: 'idle',
-    mlProgress: 0,
   }),
 }));
 

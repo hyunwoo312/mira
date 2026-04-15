@@ -23,7 +23,6 @@ import { useScrollspy } from '@/hooks/use-scrollspy';
 import { useProfile } from '@/hooks/use-profile';
 import { useFill } from '@/hooks/use-fill';
 import { useFiles } from '@/hooks/use-files';
-import { useMLStatus } from '@/hooks/use-ml-status';
 import { PROFILE_SECTIONS } from '@/types/profile';
 import { cn } from '@/lib/utils';
 import type { SectionId } from '@/types/profile';
@@ -74,13 +73,13 @@ export function Shell() {
     addNewPreset,
     removePreset,
     rename,
+    saveNow,
     exportAllData,
     importData,
     deleteAllData,
   } = useProfile();
-  const { isLoading, result, logs, pageUrl, fill } = useFill(activePresetId);
+  const { isLoading, result, logs, pageUrl, fill } = useFill();
   const { files } = useFiles(activePresetId);
-  const { mlStatus, mlProgress } = useMLStatus();
 
   const firstName = form.watch('firstName');
   const lastName = form.watch('lastName');
@@ -96,25 +95,67 @@ export function Shell() {
     if (!show) setProfileAnimKey((k) => k + 1); // trigger re-entry animation
   }, []);
 
-  const handleFill = useCallback(() => {
-    fill(form.getValues());
-  }, [fill, form]);
+  const handleFill = useCallback(async () => {
+    await saveNow();
+    fill();
+  }, [saveNow, fill]);
 
   if (!isLoaded) {
     return (
-      <div className="flex items-center justify-center h-screen bg-background">
+      <div className="flex flex-col h-screen bg-background">
         <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="flex flex-col items-center gap-3"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3 }}
+          className="flex flex-col gap-0 px-0"
         >
-          <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
-            className="w-5 h-5 border-2 border-muted border-t-primary rounded-full"
-          />
-          <span className="text-[11px] text-muted-foreground">Loading your profiles…</span>
+          {/* Preset bar skeleton */}
+          <div className="px-4 py-3 border-b border-border">
+            <div className="h-7 w-28 rounded-md bg-muted animate-pulse" />
+          </div>
+
+          {/* Completeness bar skeleton */}
+          <div className="px-6 py-3">
+            <div className="h-2 w-full rounded-full bg-muted animate-pulse" />
+          </div>
+
+          {/* Tab bar skeleton */}
+          <div className="flex gap-2 px-6 pb-3 border-b border-border">
+            {[48, 36, 56, 44, 40].map((w, i) => (
+              <div
+                key={i}
+                className="h-6 rounded-md bg-muted animate-pulse"
+                style={{ width: w, animationDelay: `${i * 100}ms` }}
+              />
+            ))}
+          </div>
+
+          {/* Section skeletons */}
+          <div className="px-6 pt-6 space-y-8">
+            {[0, 1, 2].map((s) => (
+              <div key={s} className="space-y-3" style={{ animationDelay: `${s * 150}ms` }}>
+                <div
+                  className="h-4 w-32 rounded bg-muted animate-pulse"
+                  style={{ animationDelay: `${s * 150}ms` }}
+                />
+                <div className="space-y-2">
+                  {[1, 2, 3].map((r) => (
+                    <div
+                      key={r}
+                      className="h-9 rounded-md bg-muted/60 animate-pulse"
+                      style={{ animationDelay: `${(s * 3 + r) * 80}ms` }}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
         </motion.div>
+
+        {/* Fill bar skeleton */}
+        <div className="mt-auto border-t border-border px-5 py-4">
+          <div className="h-[46px] rounded bg-muted animate-pulse" />
+        </div>
       </div>
     );
   }
@@ -311,8 +352,6 @@ export function Shell() {
           result={result}
           logs={logs}
           pageUrl={pageUrl}
-          mlStatus={mlStatus}
-          mlProgress={mlProgress}
           profileReady={profileReady}
           onExport={exportAllData}
           onImport={importData}

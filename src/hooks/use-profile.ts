@@ -61,6 +61,21 @@ export function useProfile() {
     };
   }, [isLoaded, store, form]);
 
+  // Flush current form values to storage immediately (cancels debounce)
+  const saveNow = useCallback(async () => {
+    if (!store) return;
+    if (autoSaveTimer.current) {
+      clearTimeout(autoSaveTimer.current);
+      autoSaveTimer.current = null;
+    }
+    const parsed = profileSchema.safeParse(form.getValues());
+    if (parsed.success) {
+      const updated = await saveActiveProfile(store, parsed.data);
+      setStore(updated);
+      setLastSaved(Date.now());
+    }
+  }, [store, form]);
+
   // Switch active preset
   const switchPreset = useCallback(
     async (presetId: string) => {
@@ -247,6 +262,7 @@ export function useProfile() {
     lastSaved,
     presets,
     activePresetId,
+    saveNow,
     switchPreset,
     addNewPreset,
     removePreset,
