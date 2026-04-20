@@ -40,7 +40,7 @@ const FIELD_MAP: Record<string, string> = {
   postalCode: 'zipCode',
   county: '__skip__',
   phoneType: 'phoneDeviceType',
-  countryPhoneCode: '__skip__',
+  countryPhoneCode: 'phoneCountryCode',
   phoneNumber: 'phoneDigits',
   extension: '__skip__',
   acceptTermsAndAgreements: 'consent',
@@ -148,6 +148,14 @@ export function waitForWorkdayListbox(timeout: number): Promise<HTMLElement | nu
 
 export function getDropdownSynonyms(value: string, category?: string): string[] {
   const results = [value];
+
+  // `workedHereBefore` fillMap value is "I have not" (optimized for react-selects
+  // with verbose options like "I have not worked at X"). Workday dropdowns have
+  // shorter/differently-phrased negatives — expose common ones as synonyms.
+  if (category === 'workedHereBefore' && /^i have not$/i.test(value.trim())) {
+    results.push('No', 'Never', 'I have never', 'No, never', 'No, I have not');
+  }
+
   if (category !== 'degree') return results;
 
   const v = value.toLowerCase().trim();

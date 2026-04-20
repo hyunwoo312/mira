@@ -5,8 +5,16 @@ export async function fillFile(el: HTMLElement, value: string): Promise<FillOutc
   if (!(el instanceof HTMLInputElement) || el.type !== 'file')
     return { status: 'skipped', reason: 'wrong-type' };
   try {
-    const fileData = JSON.parse(value) as { name: string; type: string; data: string };
-    if (!fileData.data || !fileData.name) return { status: 'failed', reason: 'element-error' };
+    const parsed = JSON.parse(value) as unknown;
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      typeof (parsed as Record<string, unknown>).name !== 'string' ||
+      typeof (parsed as Record<string, unknown>).data !== 'string'
+    ) {
+      return { status: 'failed', reason: 'element-error' };
+    }
+    const fileData = parsed as { name: string; type?: string; data: string };
     const base64 = fileData.data.split(',')[1] ?? fileData.data;
     // Guard against excessively large payloads (>10MB base64 ≈ ~7.5MB file)
     if (base64.length > 10_000_000) return { status: 'failed', reason: 'element-error' };

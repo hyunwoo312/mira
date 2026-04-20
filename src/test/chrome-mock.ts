@@ -2,6 +2,11 @@ import { vi } from 'vitest';
 
 const store: Record<string, unknown> = {};
 
+const onChanged = {
+  addListener: vi.fn(),
+  removeListener: vi.fn(),
+};
+
 export const chromeMock = {
   storage: {
     local: {
@@ -17,11 +22,28 @@ export const chromeMock = {
       remove: vi.fn(async (key: string) => {
         delete store[key];
       }),
+      onChanged,
+      clear: vi.fn(async () => {
+        for (const k of Object.keys(store)) delete store[k];
+      }),
     },
+    onChanged,
   },
   runtime: {
     getManifest: vi.fn(() => ({ version: '0.0.0-test' })),
     sendMessage: vi.fn(),
+    connect: vi.fn(() => ({
+      onMessage: { addListener: vi.fn() },
+      onDisconnect: { addListener: vi.fn() },
+      postMessage: vi.fn(),
+      disconnect: vi.fn(),
+    })),
+  },
+  tabs: {
+    query: vi.fn(async () => []),
+    onActivated: { addListener: vi.fn(), removeListener: vi.fn() },
+    onUpdated: { addListener: vi.fn(), removeListener: vi.fn() },
+    create: vi.fn(),
   },
   sidePanel: {
     setPanelBehavior: vi.fn(),

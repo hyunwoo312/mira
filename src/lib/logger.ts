@@ -5,9 +5,10 @@
  */
 
 const LOG_KEY = 'mira_logs';
+const SETTINGS_KEY = 'mira_settings';
 const MAX_ENTRIES = 100;
 
-export type LogLevel = 'info' | 'warn' | 'error';
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export interface LogEntry {
   level: LogLevel;
@@ -35,7 +36,24 @@ async function writeLog(level: LogLevel, message: string, context?: string): Pro
   }
 }
 
+async function isVerbose(): Promise<boolean> {
+  try {
+    const r = await chrome.storage.local.get(SETTINGS_KEY);
+    const s = r[SETTINGS_KEY] as { verboseLogging?: boolean } | undefined;
+    return s?.verboseLogging === true;
+  } catch {
+    return false;
+  }
+}
+
 export const logger = {
+  debug: async (message: string, context?: string) => {
+    if (await isVerbose()) {
+      // eslint-disable-next-line no-console
+      console.debug('[mira]', context ? `[${context}]` : '', message);
+      writeLog('debug', message, context);
+    }
+  },
   info: (message: string, context?: string) => writeLog('info', message, context),
   warn: (message: string, context?: string) => writeLog('warn', message, context),
   error: (message: string, context?: string) => writeLog('error', message, context),

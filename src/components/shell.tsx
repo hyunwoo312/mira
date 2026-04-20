@@ -25,6 +25,7 @@ import { useFill } from '@/hooks/use-fill';
 import { useFiles } from '@/hooks/use-files';
 import { PROFILE_SECTIONS } from '@/types/profile';
 import { cn } from '@/lib/utils';
+import { clearAllAnswerBanks } from '@/lib/storage';
 import type { SectionId } from '@/types/profile';
 import type { FC } from 'react';
 
@@ -180,6 +181,8 @@ export function Shell() {
                   onAdd={addNewPreset}
                   onRequestDelete={setDeletePresetId}
                   onRename={rename}
+                  onExport={exportAllData}
+                  onImport={importData}
                 />
               </motion.div>
               <motion.div
@@ -208,6 +211,8 @@ export function Shell() {
                 onAdd={addNewPreset}
                 onRequestDelete={setDeletePresetId}
                 onRename={rename}
+                onExport={exportAllData}
+                onImport={importData}
               />
               <ProfileCompleteness lastSaved={lastSaved} hasDocuments={files.length > 0} />
               <TabBar activeSection={activeSection} onTabClick={scrollToSection} />
@@ -353,9 +358,11 @@ export function Shell() {
           logs={logs}
           pageUrl={pageUrl}
           profileReady={profileReady}
-          onExport={exportAllData}
-          onImport={importData}
           onDeleteAll={deleteAllData}
+          onClearAnswerBank={async () => {
+            await clearAllAnswerBanks();
+            form.setValue('answerBank', []);
+          }}
         />
 
         <DeletePresetDialog

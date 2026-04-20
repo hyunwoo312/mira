@@ -43,14 +43,26 @@ function sanitize(text: string, maxLen = 200): string {
   return text.slice(0, maxLen).replace(/[\x00-\x1F\x7F]/g, ' ');
 }
 
+/**
+ * Strip trailing required-field markers (asterisks) so the ML sees the
+ * semantic label regardless of whether the form renders the required cue.
+ * Observed on Sony: "Will you need relocation assistance…?" classifies as
+ * `relocationAssistance` 79%, but the same string with a trailing `*`
+ * flips to `relocate` 75% because the tokenizer bundles `location?*`
+ * differently. Training samples don't carry these cosmetic markers.
+ */
+function stripRequiredMarkers(label: string): string {
+  return label.replace(/[\s*✱★]+$/u, '').trim();
+}
+
 function buildClassifyInput(field: FieldContext): string {
   const parts: string[] = ['<classify>'];
   if (field.sectionHeading) parts.push(sanitize(field.sectionHeading) + ' :');
-  parts.push(sanitize(field.label));
+  parts.push(sanitize(stripRequiredMarkers(field.label)));
   if (field.placeholder) parts.push(sanitize(field.placeholder, 100));
   if (field.type) parts.push(`[${field.type}]`);
   if (field.ariaLabel && field.ariaLabel !== field.label)
-    parts.push(sanitize(field.ariaLabel, 100));
+    parts.push(sanitize(stripRequiredMarkers(field.ariaLabel), 100));
   if (field.name) parts.push(sanitize(field.name, 50));
   if (field.options?.length)
     parts.push(

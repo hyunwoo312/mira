@@ -13,7 +13,7 @@ describe('lookupCategory', () => {
       ['formField-postalCode', 'zipCode'],
       ['formField-phoneNumber', 'phoneDigits'],
       ['formField-phoneType', 'phoneDeviceType'],
-      ['formField-countryPhoneCode', '__skip__'],
+      ['formField-countryPhoneCode', 'phoneCountryCode'],
       ['formField-extension', '__skip__'],
       ['formField-county', '__skip__'],
       ['formField-source', '__skip__'],

@@ -110,8 +110,12 @@ describe('label map consistency', () => {
     }
   });
 
-  it('should have exactly 56 categories', () => {
-    expect(Object.keys(labelMap.label2id)).toHaveLength(56);
+  it('should have exactly 58 categories', () => {
+    expect(Object.keys(labelMap.label2id)).toHaveLength(58);
+  });
+
+  it('should include the relocationAssistance category (v0.2.2 retrain)', () => {
+    expect(labelMap.label2id).toHaveProperty('relocationAssistance');
   });
 });
 

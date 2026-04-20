@@ -96,6 +96,12 @@ describe('address2', () => {
       expect(classifyField(label)).toBe('address2');
     },
   );
+
+  it('should NOT match "business unit" inside a long question label', () => {
+    const longQuestion =
+      'Have you been employed by Lyft, or any subsidiary, affiliate, or business unit of Lyft, in the past?';
+    expect(classifyField(longQuestion)).not.toBe('address2');
+  });
 });
 
 describe('city', () => {
@@ -229,9 +235,19 @@ describe('otherUrl', () => {
 // ── Work / Education ──
 
 describe('company', () => {
-  it.each(['Company', 'Current Company', 'Employer'])('should classify "%s"', (label) => {
-    expect(classifyField(label)).toBe('company');
-  });
+  it.each(['Company', 'Current Company', 'Employer', 'Most recent employer'])(
+    'should classify "%s"',
+    (label) => {
+      expect(classifyField(label)).toBe('company');
+    },
+  );
+
+  it.each(['May we contact your current employer?', 'Do you work for a competing employer?'])(
+    'should NOT classify question "%s" as company',
+    (label) => {
+      expect(classifyField(label)).not.toBe('company');
+    },
+  );
 });
 
 describe('jobTitle', () => {
@@ -297,6 +313,9 @@ describe('categories delegated to ML (should return null from patterns)', () => 
   it.each([
     'Will you now or in the future require visa sponsorship?',
     'Are you willing to relocate?',
+    'Will you need relocation assistance to work at this location?',
+    'Do you require relocation support?',
+    'Relocation package needed?',
     'Are you 18 years of age or older?',
     'What is your current age?',
     'Can we reach you via SMS?',

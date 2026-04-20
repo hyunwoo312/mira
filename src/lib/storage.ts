@@ -242,13 +242,16 @@ export async function clearAllData(): Promise<void> {
   await chrome.storage.local.clear();
 }
 
-// Legacy exports for backward compatibility during migration
-export async function loadProfile(): Promise<Profile> {
+/** Wipe the answer bank for every preset and persist. */
+export async function clearAllAnswerBanks(): Promise<PresetStore> {
   const store = await loadPresetStore();
-  return getActiveProfile(store);
-}
-
-export async function saveProfile(profile: Profile): Promise<void> {
-  const store = await loadPresetStore();
-  await saveActiveProfile(store, profile);
+  const updated: PresetStore = {
+    ...store,
+    presets: store.presets.map((p) => ({
+      ...p,
+      profile: { ...p.profile, answerBank: [] },
+    })),
+  };
+  await savePresetStore(updated);
+  return updated;
 }

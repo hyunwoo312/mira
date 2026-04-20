@@ -14,6 +14,7 @@ import {
   getComboboxDisplayValue,
   waitForOptions,
   findBestOptionIndex,
+  isYesNoOnlyOptionSet,
   DROPDOWN_WAIT_MS,
   DROPDOWN_WAIT_FILTERED_MS,
   LOCATION_API_WAIT_MS,
@@ -21,6 +22,20 @@ import {
   PLACES_COLD_START_MS,
   LARGE_DROPDOWN_THRESHOLD,
 } from './shared';
+
+/**
+ * `exportControl`'s profile value ("U.S. person" / "Foreign person") doesn't
+ * map cleanly to Yes/No option sets, and the OFAC Yes/No semantic is inverted
+ * ("Yes" means the candidate IS a citizen of a sanctioned country). Rather
+ * than let the ML option-scorer guess — which has picked the wrong answer on
+ * Telnyx — skip the fill when the option set is Yes/No-only.
+ */
+function shouldSkipForExportControlMismatch(
+  category: string | undefined,
+  options: string[],
+): boolean {
+  return category === 'exportControl' && isYesNoOnlyOptionSet(options);
+}
 
 const STATE_ABBREVS: Record<string, string> = {
   alabama: 'al',
@@ -116,6 +131,30 @@ async function matchOption(
   return -1;
 }
 
+/**
+ * Some native selects (iCIMS country, state, academic field) populate their
+ * options via an async fetch that completes after page hydration. If the
+ * select is suspiciously empty at fill time, poll briefly for options before
+ * declaring no-option-match.
+ */
+async function waitForSelectOptions(el: HTMLSelectElement, timeoutMs = 1500): Promise<void> {
+  // Treat "empty" as: no options with a real value, OR only one option whose
+  // text looks like a placeholder ("please select…", "— make a selection —").
+  const PLACEHOLDER = /please\s*select|make\s*a\s*selection|^--|^—/i;
+  const needsWait = () => {
+    const real = Array.from(el.options).filter((o) => o.value !== '');
+    if (real.length === 0) return true;
+    if (real.length === 1 && PLACEHOLDER.test(real[0]!.text.trim())) return true;
+    return false;
+  };
+  if (!needsWait()) return;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await sleep(100);
+    if (!needsWait()) return;
+  }
+}
+
 export async function fillNativeSelect(
   el: HTMLElement,
   value: string,
@@ -125,14 +164,30 @@ export async function fillNativeSelect(
   if (!(el instanceof HTMLSelectElement)) return { status: 'skipped', reason: 'wrong-type' };
   if (el.selectedIndex > 0) return { status: 'skipped', reason: 'already-filled' };
 
+  // Lazy-loaded selects: wait briefly for options if the dropdown is empty.
+  await waitForSelectOptions(el);
+
   const texts = Array.from(el.options).map((o) => o.text);
+  // Check the non-placeholder subset so an empty "Select…" option doesn't
+  // mask a Yes/No-only set.
+  const meaningfulTexts = Array.from(el.options)
+    .filter((o) => o.value !== '')
+    .map((o) => o.text);
+  if (shouldSkipForExportControlMismatch(category, meaningfulTexts)) {
+    return { status: 'skipped', reason: 'no-value' };
+  }
+
   const idx = await findBestOptionIndex(texts, value, category, fieldLabel);
   if (idx >= 0) {
     await bridgeSetSelect(el, el.options[idx]!.value);
     return { status: 'filled', matchedOption: texts[idx] };
   }
 
-  return { status: 'failed', reason: 'no-option-match' };
+  return {
+    status: 'failed',
+    reason: 'no-option-match',
+    discoveredOptions: (meaningfulTexts.length > 0 ? meaningfulTexts : texts).slice(0, 15),
+  };
 }
 
 /** Close any open react-select dropdowns and clear search text. */
@@ -186,6 +241,9 @@ export async function fillReactSelect(
   const state = await bridgeGetSelectState(el);
   if (state && state.options.length > 0 && state.options.length <= LARGE_DROPDOWN_THRESHOLD) {
     const texts = state.options.map((o) => o.label);
+    if (shouldSkipForExportControlMismatch(category, texts)) {
+      return { status: 'skipped', reason: 'no-value' };
+    }
     // Only use fast path if fuzzy match finds something (no ML fallback — avoid false positives)
     const fuzzy = fuzzyMatchOption(texts, value, false, category);
     if (fuzzy.index >= 0 && fuzzy.score >= 0.7) {
@@ -229,6 +287,14 @@ export async function fillReactSelect(
   }
 
   if (options.length > 0) {
+    // Post-open guard: handles react-selects where bridgeGetSelectState didn't
+    // expose options (lazy / virtualized) — the Yes/No shape only becomes
+    // visible after the dropdown opens.
+    if (shouldSkipForExportControlMismatch(category, texts)) {
+      await cleanupReactSelect(el);
+      return { status: 'skipped', reason: 'no-value' };
+    }
+
     // If dropdown has many unfiltered options and none contain the search value,
     // the search didn't work — don't false-match against the full list
     if (options.length > LARGE_DROPDOWN_THRESHOLD) {
@@ -335,6 +401,11 @@ export async function fillAutocomplete(
   }
 
   const texts = options.map((o) => o.textContent?.trim() ?? '');
+
+  if (options.length > 0 && shouldSkipForExportControlMismatch(category, texts)) {
+    await bridgeKeyDown(el, 'Escape', 'Escape', 27);
+    return { status: 'skipped', reason: 'no-value' };
+  }
 
   if (options.length > 0) {
     const targetIdx = await matchOption(texts, value, isLocation, category, fieldLabel);

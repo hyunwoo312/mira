@@ -105,10 +105,18 @@ async function fillField(
 
 function fileLogValue(value: string): string {
   try {
-    return (JSON.parse(value) as { name?: string }).name ?? 'file';
+    const parsed = JSON.parse(value) as unknown;
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof (parsed as { name?: unknown }).name === 'string'
+    ) {
+      return (parsed as { name: string }).name;
+    }
   } catch {
-    return 'file';
+    /* fall through to default */
   }
+  return 'file';
 }
 
 function readActualValue(field: ScanResult): string {
@@ -177,8 +185,32 @@ function truncateLabel(label: string): string {
   return label.length > 120 ? label.slice(0, 117) + '...' : label;
 }
 
+/** Keep one entry per element (elementHint + label), priority filled > failed > skipped. */
+export function dedupeLogs(logs: FieldResult[]): FieldResult[] {
+  const statusPriority: Record<FieldResult['status'], number> = {
+    filled: 3,
+    failed: 2,
+    skipped: 1,
+  };
+  const dedupedByKey = new Map<string, FieldResult>();
+  const unkeyed: FieldResult[] = [];
+  for (const log of logs) {
+    const hint = log.elementHint ?? '';
+    if (!hint) {
+      unkeyed.push(log);
+      continue;
+    }
+    const key = hint + '::' + log.field;
+    const existing = dedupedByKey.get(key);
+    if (!existing || statusPriority[log.status] > statusPriority[existing.status]) {
+      dedupedByKey.set(key, log);
+    }
+  }
+  return [...dedupedByKey.values(), ...unkeyed];
+}
+
 /** Build a short DOM hint like "input[type=text]#first_name" or "select.country" */
-function elementHint(el: HTMLElement): string {
+export function elementHint(el: HTMLElement): string {
   const tag = el.tagName.toLowerCase();
   const type = el instanceof HTMLInputElement ? `[type=${el.type}]` : '';
   const id = el.id ? `#${el.id.slice(0, 40)}` : '';
@@ -228,7 +260,12 @@ function outcomeToLog(
       failReason: outcome.reason,
       attemptedValue: value,
     };
-    if (outcome.discoveredOptions) result.groupLabels = outcome.discoveredOptions;
+    // Only overwrite scanner's groupLabels when the filler found real options —
+    // an empty array means options weren't loaded at fill time (lazy selects),
+    // in which case we'd rather keep the scanner's snapshot.
+    if (outcome.discoveredOptions && outcome.discoveredOptions.length > 0) {
+      result.groupLabels = outcome.discoveredOptions;
+    }
     return result;
   }
   return {
@@ -284,6 +321,8 @@ function watchForLateFields(
   fillMap: Record<string, string>,
   signal: AbortSignal | undefined,
   startTime: number,
+  classificationCache: WeakMap<HTMLElement, CachedClassification>,
+  mlDisabled: boolean,
 ): Promise<{ filled: number; logs: FieldResult[] }> {
   return new Promise((resolve) => {
     let filled = 0;
@@ -304,10 +343,12 @@ function watchForLateFields(
       processing = true;
       try {
         const latestFields = scanPage();
-        // Classify new fields with full pipeline (including ML)
-        const newFields = latestFields.filter((f) => !seenKeys.has(fieldKey(f)) && !f.category);
+        // Reuse cached classifications from earlier phases before hitting ML.
+        const needsClassify = classifyWithCache(latestFields, classificationCache);
+        const newFields = needsClassify.filter((f) => !seenKeys.has(fieldKey(f)));
         if (newFields.length > 0) {
-          await classifyFields(newFields);
+          await classifyFields(newFields, { mlDisabled });
+          writeCache(newFields, classificationCache);
         }
         for (const field of latestFields) {
           if (seenKeys.has(fieldKey(field))) continue;
@@ -446,13 +487,14 @@ async function fillBucket(
 
 //  Bucket Sorting (by widgetType instead of InputType)
 
-const TEXT_WIDGETS = new Set<WidgetType>(['plain-text', 'datepicker', 'file-upload']);
+const TEXT_WIDGETS = new Set<WidgetType>(['plain-text', 'datepicker']);
 const SELECT_WIDGETS = new Set<WidgetType>([
   'native-select',
   'react-select',
   'autocomplete',
   'workday-dropdown',
   'workday-multiselect',
+  'icims-typeahead',
 ]);
 const GROUP_WIDGETS = new Set<WidgetType>([
   'radio-group',
@@ -461,20 +503,73 @@ const GROUP_WIDGETS = new Set<WidgetType>([
   'button-group',
   'workday-virtualized-checkbox',
   'workday-date',
+  'icims-date',
 ]);
+// File uploads fire framework-specific side-effects (iCIMS auto-submits the
+// form after a resume upload, for example). Fill them LAST so every other
+// field is already populated before the navigation happens.
+const FILE_WIDGETS = new Set<WidgetType>(['file-upload']);
 
 //  Main Pipeline
+
+export interface FillOptions {
+  mlDisabled?: boolean;
+}
+
+interface CachedClassification {
+  category: string | null;
+  classifiedBy?: ScanResult['classifiedBy'];
+  mlConfidence?: number;
+}
+
+/**
+ * Apply cached classifications to unclassified fields in-place; return the
+ * subset that still needs real classification. Rescans reuse DOM elements
+ * for fields that were present earlier, so we key the cache by element ref.
+ */
+function classifyWithCache(
+  fields: ScanResult[],
+  cache: WeakMap<HTMLElement, CachedClassification>,
+): ScanResult[] {
+  const unclassified: ScanResult[] = [];
+  for (const field of fields) {
+    if (field.category && field.classifiedBy) continue;
+    const cached = cache.get(field.element);
+    if (cached) {
+      field.category = cached.category;
+      field.classifiedBy = cached.classifiedBy;
+      field.mlConfidence = cached.mlConfidence;
+      continue;
+    }
+    unclassified.push(field);
+  }
+  return unclassified;
+}
+
+function writeCache(fields: ScanResult[], cache: WeakMap<HTMLElement, CachedClassification>): void {
+  for (const f of fields) {
+    if (f.classifiedBy) {
+      cache.set(f.element, {
+        category: f.category,
+        classifiedBy: f.classifiedBy,
+        mlConfidence: f.mlConfidence,
+      });
+    }
+  }
+}
 
 export async function fillPage(
   fillMap: Record<string, string>,
   answerBank: AnswerEntry[] = [],
   signal?: AbortSignal,
+  opts: FillOptions = {},
 ): Promise<FillResult> {
   const startTime = performance.now();
   const ats = detectATS();
   const totalFormElements = document.querySelectorAll('input, select, textarea').length;
   const fields = scanPage();
   const logs: FieldResult[] = [];
+  const classificationCache = new WeakMap<HTMLElement, CachedClassification>();
 
   if (shouldAbort(signal))
     return {
@@ -487,12 +582,12 @@ export async function fillPage(
       durationMs: 0,
     };
 
-  // ── Classify unclassified fields (generic ATS / unknown Workday pages) ──
-  const unclassified = fields.filter((f) => !f.category || !f.classifiedBy);
-  let mlAvailable = true;
+  const unclassified = classifyWithCache(fields, classificationCache);
+  let mlAvailable = !opts.mlDisabled;
   if (unclassified.length > 0) {
-    mlAvailable = await classifyFields(unclassified);
+    mlAvailable = await classifyFields(unclassified, { mlDisabled: opts.mlDisabled === true });
   }
+  writeCache(fields, classificationCache);
 
   if (shouldAbort(signal))
     return {
@@ -519,6 +614,7 @@ export async function fillPage(
   const groupFields = classified.filter(
     (f) => GROUP_WIDGETS.has(f.widgetType) && f.category !== 'location',
   );
+  const fileFields = classified.filter((f) => FILE_WIDGETS.has(f.widgetType));
 
   await fillBucket(textFields, fillMap, logs, signal);
 
@@ -534,6 +630,14 @@ export async function fillPage(
   if (!shouldAbort(signal) && locationFields.length > 0) {
     await sleep(REACT_SETTLE_MS);
     await fillBucket(locationFields, fillMap, logs, signal);
+  }
+
+  // ── Phase C3: File uploads last — iCIMS etc. auto-submit the form on
+  // resume select, which navigates the iframe and nukes any still-pending
+  // fills. Running files after everything else means we only lose the
+  // answer-bank / rescan phases if navigation happens.
+  if (!shouldAbort(signal) && fileFields.length > 0) {
+    await fillBucket(fileFields, fillMap, logs, signal);
   }
 
   // ── Phase D: Answer bank for unmatched fields ──
@@ -567,6 +671,8 @@ export async function fillPage(
         field: truncateLabel(field.label),
         value: '',
         status: 'skipped',
+        source: field.classifiedBy,
+        skipReason: 'no-value',
         ...scannerMeta(field),
       });
     }
@@ -579,11 +685,12 @@ export async function fillPage(
     await sleep(REACT_SETTLE_MS);
     const newFields = scanPage();
 
-    // Classify newly revealed fields
-    const newUnclassified = newFields.filter((f) => !f.category || !f.classifiedBy);
+    // Classify newly revealed fields (reusing cache hits for fields already seen)
+    const newUnclassified = classifyWithCache(newFields, classificationCache);
     if (newUnclassified.length > 0) {
-      await classifyFields(newUnclassified);
+      await classifyFields(newUnclassified, { mlDisabled: opts.mlDisabled === true });
     }
+    writeCache(newFields, classificationCache);
 
     for (const field of newFields) {
       if (!field.category) continue;
@@ -609,9 +716,18 @@ export async function fillPage(
     }
 
     // Watch for late-appearing fields (up to 3s)
-    const rescanResult = await watchForLateFields(seenKeys, fillMap, signal, startTime);
+    const rescanResult = await watchForLateFields(
+      seenKeys,
+      fillMap,
+      signal,
+      startTime,
+      classificationCache,
+      opts.mlDisabled === true,
+    );
     logs.push(...rescanResult.logs);
   }
+
+  const dedupedLogs = dedupeLogs(logs);
 
   // Sort logs by original scan order (DOM position) instead of fill order.
   // Fields from rescan/late-discovery stay at the end.
@@ -620,15 +736,15 @@ export async function fillPage(
     const key = truncateLabel(fields[i]!.label);
     if (!scanOrder.has(key)) scanOrder.set(key, i);
   }
-  logs.sort((a, b) => {
+  dedupedLogs.sort((a, b) => {
     const ia = scanOrder.get(a.field) ?? Infinity;
     const ib = scanOrder.get(b.field) ?? Infinity;
     return ia - ib;
   });
 
-  const finalFilled = logs.filter((l) => l.status === 'filled').length;
-  const finalFailed = logs.filter((l) => l.status === 'failed').length;
-  const finalSkipped = logs.filter((l) => l.status === 'skipped').length;
+  const finalFilled = dedupedLogs.filter((l) => l.status === 'filled').length;
+  const finalFailed = dedupedLogs.filter((l) => l.status === 'failed').length;
+  const finalSkipped = dedupedLogs.filter((l) => l.status === 'skipped').length;
 
   const durationMs = Math.round(performance.now() - startTime);
   return {
@@ -636,7 +752,7 @@ export async function fillPage(
     failed: finalFailed,
     skipped: finalSkipped,
     total: finalFilled + finalFailed + finalSkipped,
-    logs,
+    logs: dedupedLogs,
     mlAvailable,
     durationMs,
     ats,

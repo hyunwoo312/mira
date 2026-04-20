@@ -41,6 +41,12 @@ const PATTERNS: [RegExp, string][] = [
     '__skip__',
   ],
 
+  // Applicant self-assertion: "Do you meet the basic qualifications?" → always Yes.
+  [
+    /(?:meet|have).*(?:the\s+)?(?:basic|minimum|required)\s+qualifications|qualifications.*(?:specified|described|listed)/i,
+    'hasExperience',
+  ],
+
   // ── Name ──
   [/first.?name.*last.?name/i, 'fullName'],
   [/preferred.*name/i, 'preferredName'],
@@ -58,6 +64,10 @@ const PATTERNS: [RegExp, string][] = [
   [/phone|tel\b/i, 'phone'],
 
   // ── Location / Address ──
+  // Country must come before the `location` pattern so labels like
+  // "Country/Region/Location" anchor on the leading "Country" token instead
+  // of the embedded "Location".
+  [/^country|select.*country.*reside|country.*currently.*reside|country.*you.*live/i, 'country'],
   [
     /^location$|(?<!\brelocat\w*\b.{0,40})\blocation\b(?!.*\brelocat)|where.*(?:are|is).*you.*located|current.*location/i,
     'location',
@@ -67,7 +77,6 @@ const PATTERNS: [RegExp, string][] = [
   [/\bcity\b/i, 'city'],
   [/\bstate\b|province/i, 'state'],
   [/zip|postal/i, 'zipCode'],
-  [/^country|select.*country.*reside|country.*currently.*reside|country.*you.*live/i, 'country'],
 
   // ── Links ──
   [/linkedin/i, 'linkedin'],
@@ -122,7 +131,10 @@ const PATTERNS: [RegExp, string][] = [
 
   // ── Work / Education (short unambiguous labels only) ──
   [/^notice\s*period|notice.*(?:period|required)/i, 'noticePeriod'],
-  [/current.?company|^company$|employer|most\s+recent\s+company/i, 'company'],
+  // Require a company/employer noun at the start of the label (optionally preceded
+  // by a qualifier). This avoids false positives on questions like
+  // "May we contact your current employer?" which are Yes/No fields.
+  [/^(?:(?:current|previous|prior|past|most\s+recent)\s+)?(?:company|employer)\b/i, 'company'],
   [/current.?title|job.?title|most\s+recent\s+title/i, 'jobTitle'],
   [/^school$|university|college/i, 'school'],
   [/^degree$|degree.*type|level.*of.*education/i, 'degree'],
@@ -145,6 +157,9 @@ const BROAD_CATEGORIES = new Set([
   'twitter',
   'portfolio',
   'company',
+  // address2 uses broad tokens like \bunit\b, \bfloor\b that match phrases such
+  // as "business unit of Lyft" inside long question labels.
+  'address2',
 ]);
 const MAX_LABEL_FOR_BROAD = 60;
 

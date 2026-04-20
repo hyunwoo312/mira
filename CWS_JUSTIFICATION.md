@@ -6,7 +6,7 @@ This document provides context for Chrome Web Store reviewers on Mira's permissi
 
 ### Host Permissions: `<all_urls>`
 
-Mira is a job application auto-filler. Application forms appear on thousands of different employer domains — there's no fixed set of URLs we can pre-declare. The four ATS platforms we support (Greenhouse, Lever, Ashby, Workday) are frequently embedded on company career pages via iframes, meaning the form may load on any arbitrary domain.
+Mira is a job application auto-filler. Application forms appear on thousands of different employer domains — there's no fixed set of URLs we can pre-declare. The five ATS platforms we support (Greenhouse, Lever, Ashby, Workday, iCIMS) are frequently embedded on company career pages via iframes, meaning the form may load on any arbitrary domain.
 
 Content scripts are **not auto-injected on any page**. They use `registration: 'runtime'` and are only injected programmatically via `chrome.scripting.executeScript` when the user explicitly triggers a fill (via sidepanel button, context menu, or keyboard shortcut). No code runs on any page until the user takes action. No background scanning or data collection occurs.
 

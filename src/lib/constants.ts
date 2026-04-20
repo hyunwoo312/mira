@@ -11,6 +11,11 @@ export const ML_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 
 // Changelog entries keyed by version
 export const CHANGELOG: Record<string, string[]> = {
+  '0.2.2': [
+    'Added iCIMS support — fills job applications on iCIMS-hosted career pages',
+    'New Settings panel — customize overlay timing, skip EEO/salary, manage privacy and data',
+    'Polishing across fill accuracy and UI',
+  ],
   '0.2.1': [
     'Auto-fill from right-click menu or Ctrl+Shift+F shortcut',
     'Live fill progress overlay on the page',

@@ -12,7 +12,11 @@ const _pending = new Map<
 
 if (typeof window !== 'undefined') {
   window.addEventListener('message', (event) => {
+    // Same-window + same-origin guard. An iframe in the host page cannot spoof
+    // protocol messages from a different origin, and cross-window posters are
+    // ignored outright.
     if (event.source !== window) return;
+    if (event.origin !== window.location.origin) return;
     const msg = event.data;
     if (!msg || typeof msg !== 'object' || !msg[PROTOCOL]) return;
 
@@ -47,7 +51,7 @@ function send(
     }, timeoutMs);
 
     _pending.set(id, { resolve, timer });
-    window.postMessage({ [PROTOCOL]: true, id, action, ...params }, '*');
+    window.postMessage({ [PROTOCOL]: true, id, action, ...params }, window.location.origin);
   });
 }
 
@@ -136,6 +140,13 @@ export async function bridgeKeyDown(
 ): Promise<boolean> {
   const miraId = tagElement(el);
   const r = await send('keyDown', { miraId, key, code, keyCode });
+  return r?.success ?? false;
+}
+
+/** Trigger Workday monikerSearchBox search by invoking React's onKeyDown prop directly. */
+export async function bridgeWorkdayMonikerSearch(el: HTMLElement, value: string): Promise<boolean> {
+  const miraId = tagElement(el);
+  const r = await send('workdayMonikerSearch', { miraId, value });
   return r?.success ?? false;
 }
 

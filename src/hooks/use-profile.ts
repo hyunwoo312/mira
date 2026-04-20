@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useState, useRef } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { profileSchema, DEFAULT_PROFILE, type Profile } from '@/lib/schema';
 import { DROPDOWN_FIELDS, findIndex } from '@/lib/field-options';
@@ -15,6 +15,22 @@ import {
   type PresetStore,
   type Preset,
 } from '@/lib/storage';
+import { saveSettings } from '@/lib/settings';
+
+const MIGRATIONS_KEY = 'mira_migrations';
+
+async function migrateLegacySkipEeo(store: PresetStore): Promise<void> {
+  const r = await chrome.storage.local.get(MIGRATIONS_KEY);
+  const done = (r[MIGRATIONS_KEY] as Record<string, boolean> | undefined) ?? {};
+  if (done.skipEeoConsolidation) return;
+
+  const hasLegacy = store.presets.some((p) => p.profile?.skipEeo === true);
+  if (hasLegacy) await saveSettings({ skipEeo: true });
+
+  await chrome.storage.local.set({
+    [MIGRATIONS_KEY]: { ...done, skipEeoConsolidation: true },
+  });
+}
 
 export function useProfile() {
   const [isLoaded, setIsLoaded] = useState(false);
@@ -22,19 +38,23 @@ export function useProfile() {
   const [lastSaved, setLastSaved] = useState<number>(0);
 
   const form = useForm<Profile>({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    resolver: zodResolver(profileSchema) as any,
+    // zodResolver infers the schema's input type (pre-default); useForm wants
+    // the output type (post-default). `unknown` cast bridges the two cleanly.
+    resolver: zodResolver(profileSchema) as unknown as Resolver<Profile>,
     defaultValues: DEFAULT_PROFILE,
     mode: 'onChange',
   });
 
   // Load presets on mount
   useEffect(() => {
-    loadPresetStore().then((loaded) => {
+    loadPresetStore().then(async (loaded) => {
       setStore(loaded);
       const profile = getActiveProfile(loaded);
       form.reset(profile);
       setIsLoaded(true);
+      migrateLegacySkipEeo(loaded).catch((err) => {
+        console.warn('[mira] skipEeo migration failed:', err);
+      });
     });
   }, [form]);
 

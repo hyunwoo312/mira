@@ -431,4 +431,54 @@ describe('fuzzyMatchOption', () => {
       expect(result).toEqual({ index: 0, score: 0.85 });
     });
   });
+
+  // ── 10. yesNo alias narrowness ─────────────────────────────────────
+  //
+  // Regression: overly broad "I am" / "I do" / "I have" aliases under yesNo.Yes
+  // used to word-boundary-match any option beginning with those phrases —
+  // including negations ("I am not authorized..."). That produced silent
+  // wrong fills where Yes users landed on No options and vice versa.
+  //
+  // The fix removed those broad aliases. The specific compound aliases
+  // ("I am authorized", "I acknowledge", etc.) still cover the legitimate
+  // cases. yesNo.No keeps "I am not" / "I do not" / "I have not" since those
+  // are specific enough.
+
+  describe('yesNo alias narrowness', () => {
+    it('Yes with "authorized" option still matches via compound alias', () => {
+      const r = fuzzyMatchOption(
+        ['I am authorized to work', 'I am not authorized to work'],
+        'Yes',
+        false,
+        'workAuth',
+      );
+      expect(r.index).toBe(0);
+    });
+
+    it('No with negated-authorized option matches via compound alias', () => {
+      const r = fuzzyMatchOption(
+        ['I am authorized to work', 'I am not authorized to work'],
+        'No',
+        false,
+        'workAuth',
+      );
+      expect(r.index).toBe(1);
+    });
+
+    it('does not false-match broad "I am" against the No option when Yes is requested', () => {
+      // Pre-fix: options [I am not willing..., I am willing...] with value "Yes"
+      // returned index 0 via the "i am" alias matching the first option in
+      // iteration order — picking the No answer. With "i am"/"i do"/"i have"
+      // removed from yesNo.Yes, no yesNo alias matches these options and the
+      // call returns -1 so callers fall back to ML/concept scoring instead of
+      // silently filling the wrong answer.
+      const r = fuzzyMatchOption(
+        ['I am not willing to relocate', 'I am willing to relocate'],
+        'Yes',
+        false,
+        'relocate',
+      );
+      expect(r.index).toBeLessThan(0);
+    });
+  });
 });

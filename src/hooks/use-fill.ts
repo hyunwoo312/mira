@@ -42,38 +42,57 @@ export function useFill() {
     error: null,
   });
 
-  // Connect port — background uses this to know sidepanel is open,
-  // and to push fill results from context menu / keyboard shortcut fills.
+  // Port for push notifications from background. Reconnects with backoff
+  // so shortcut/context fills still reach the sidepanel after SW restarts.
   const portRef = useRef<chrome.runtime.Port | null>(null);
   useEffect(() => {
-    const port = chrome.runtime.connect({ name: 'sidepanel' });
-    portRef.current = port;
+    let disposed = false;
 
-    port.onMessage.addListener(
-      (message: {
-        type: string;
-        result?: FillState['result'];
-        logs?: unknown[];
-        pageUrl?: string;
-        error?: string | null;
-      }) => {
-        if (message.type === 'FILL_STARTED') {
-          setState({ isLoading: true, result: null, logs: [], pageUrl: '', error: null });
-        }
-        if (message.type === 'FILL_RESULT') {
-          setState({
-            isLoading: false,
-            result: message.result ?? null,
-            logs: (message.logs as FillLogItem[]) ?? [],
-            pageUrl: message.pageUrl ?? '',
-            error: message.error ?? null,
-          });
-        }
-      },
-    );
+    const handleMessage = (message: {
+      type: string;
+      result?: FillState['result'];
+      logs?: unknown[];
+      pageUrl?: string;
+      error?: string | null;
+    }) => {
+      if (message.type === 'FILL_STARTED') {
+        setState({ isLoading: true, result: null, logs: [], pageUrl: '', error: null });
+      }
+      if (message.type === 'FILL_RESULT') {
+        setState({
+          isLoading: false,
+          result: message.result ?? null,
+          logs: (message.logs as FillLogItem[]) ?? [],
+          pageUrl: message.pageUrl ?? '',
+          error: message.error ?? null,
+        });
+      }
+    };
+
+    let retryDelayMs = 500;
+    const MAX_DELAY_MS = 30_000;
+
+    const connect = () => {
+      if (disposed) return;
+      const port = chrome.runtime.connect({ name: 'sidepanel' });
+      portRef.current = port;
+      port.onMessage.addListener((msg) => {
+        retryDelayMs = 500;
+        handleMessage(msg);
+      });
+      port.onDisconnect.addListener(() => {
+        portRef.current = null;
+        if (disposed) return;
+        setTimeout(connect, retryDelayMs);
+        retryDelayMs = Math.min(retryDelayMs * 2, MAX_DELAY_MS);
+      });
+    };
+
+    connect();
 
     return () => {
-      port.disconnect();
+      disposed = true;
+      portRef.current?.disconnect();
       portRef.current = null;
     };
   }, []);

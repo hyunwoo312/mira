@@ -3,7 +3,13 @@ import { fillText, fillDatepicker } from './text';
 import { fillNativeSelect, fillReactSelect, fillAutocomplete } from './select';
 import { fillRadioGroup, fillCheckboxGroup, fillButtonGroup, fillCheckbox } from './group';
 import { fillFile } from './file';
-import { fillWorkdayDropdown, fillWorkdayDate, fillWorkdayVirtualizedCheckbox } from './workday';
+import {
+  fillWorkdayDropdown,
+  fillWorkdayDate,
+  fillWorkdayVirtualizedCheckbox,
+  fillWorkdayMultiselect,
+} from './workday';
+import { fillIcimsTypeahead, fillIcimsDate } from './icims';
 
 export { fillText, fillDatepicker } from './text';
 export { fillNativeSelect, fillReactSelect, fillAutocomplete } from './select';
@@ -20,7 +26,7 @@ export async function fillField(
 
   switch (field.widgetType) {
     case 'plain-text':
-      return fillText(field.element, value);
+      return fillText(field.element, value, category);
 
     case 'datepicker':
       return fillDatepicker(field.element, value);
@@ -84,7 +90,13 @@ export async function fillField(
       );
 
     case 'workday-multiselect':
-      return { status: 'skipped', reason: 'wrong-type' };
+      return fillWorkdayMultiselect(field.element, value, category, field.label);
+
+    case 'icims-typeahead':
+      return fillIcimsTypeahead(field.element, value, category, field.label);
+
+    case 'icims-date':
+      return fillIcimsDate(field.element, value);
 
     default:
       return { status: 'skipped', reason: 'wrong-type' };

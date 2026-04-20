@@ -1,6 +1,6 @@
 # Mira — Privacy Policy
 
-**Last updated:** April 10, 2026
+**Last updated:** April 20, 2026
 
 Mira is a browser extension that auto-fills job application forms. This policy explains what data Mira collects, how it is stored, and your rights regarding that data.
 
@@ -122,7 +122,7 @@ Mira requests the following browser permissions:
 
 - Your data is stored indefinitely until you delete it.
 - Uninstalling Mira removes all locally stored data.
-- You can manually delete all data using the "Clear feedback" option in the Fill Bar settings, or by removing individual presets, files, and answer bank entries through the side panel.
+- You can clear specific data categories through the Settings panel (gear icon in the footer): "Clear application history", "Clear answer bank", or "Delete all data" (removes profiles, files, history, settings, and answer bank). Individual presets, profile fields, and uploaded files can also be removed from the side panel.
 
 ---
 
@@ -132,9 +132,9 @@ You have full control over your data:
 
 - **Access:** All your data is visible in the Mira side panel at any time.
 - **Edit:** You can modify any field in your profile at any time.
-- **Delete:** You can delete individual entries, presets, files, or feedback. Uninstalling the extension removes all data.
-- **Export:** You can export fill feedback as JSON from the Fill Bar settings menu.
-- **Portability:** Your data is stored as JSON in browser storage and can be exported via browser developer tools if needed.
+- **Delete:** You can delete individual entries, presets, files, answer bank entries, or application history. The Settings panel provides one-click options to clear each category or delete everything. Uninstalling the extension also removes all data.
+- **Export:** You can export your active profile as JSON from the side panel header.
+- **Portability:** Your data is stored as JSON in browser storage and can be exported via the profile export button or, if needed, through browser developer tools.
 
 ---
 

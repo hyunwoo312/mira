@@ -80,6 +80,7 @@ export const profileSchema = z.object({
   workAuthorization: z.boolean().default(true),
   sponsorshipNeeded: z.boolean().default(false),
   willingToRelocate: z.boolean().default(false),
+  needsRelocationAssistance: z.boolean().default(false),
   willingToTravel: z.boolean().default(false),
   workArrangement: z.array(z.string()).default([]),
   earliestStartMonth: z.number().min(1).max(12).optional(),
