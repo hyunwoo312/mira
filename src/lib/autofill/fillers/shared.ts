@@ -20,6 +20,21 @@ export const NO_CONCEPT_MATCH = new Set([
 ]);
 
 /**
+ * Returns true when an option set is limited to simple Yes/No/decline-style
+ * choices. Used to short-circuit fills for categories whose profile value
+ * doesn't semantically fit a Yes/No dropdown (e.g. exportControl's
+ * "U.S. person" vs. a Yes/No OFAC question where "Yes" means the opposite).
+ */
+export function isYesNoOnlyOptionSet(options: string[]): boolean {
+  if (options.length === 0 || options.length > 4) return false;
+  return options.every((o) =>
+    /^(yes|no|decline|decline to (?:answer|self-identify)|prefer not to (?:say|answer|disclose)|n\/a|not applicable)$/i.test(
+      o.trim(),
+    ),
+  );
+}
+
+/**
  * Unified option matching: fuzzy → concept → ML scoring.
  * Single source of truth for the matching chain used across all fillers.
  */
@@ -29,6 +44,19 @@ export async function findBestOptionIndex(
   category?: string,
   fieldLabel?: string,
 ): Promise<number> {
+  // Single-option formality dropdowns ("Thank you", "I acknowledge", etc.) —
+  // the form can't be submitted without that option, so pick it when the
+  // profile value is affirmative/consent-shaped. Classification routes these
+  // to `consent` (value "Yes"), so the guard fires naturally.
+  if (
+    options.length === 1 &&
+    /^(yes|true|1|acknowledge|agree|accept|confirm|consent|ok(?:ay)?|thank\s*you)$/i.test(
+      value.trim(),
+    )
+  ) {
+    return 0;
+  }
+
   const match = fuzzyMatchOption(options, value, false, category);
   if (match.index >= 0) return match.index;
 

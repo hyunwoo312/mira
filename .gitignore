@@ -50,3 +50,4 @@ jobs.txt
 
 # Temp
 /tmp/
+temp-*.md

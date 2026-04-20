@@ -658,6 +658,7 @@ export function scanIndividualElements(
 ): void {
   const elements = document.querySelectorAll<HTMLElement>('input, select, textarea');
   const radioGroups = new Map<string, { elements: HTMLInputElement[]; labels: string[] }>();
+  const startIndex = results.length;
 
   for (const el of elements) {
     if ((el as HTMLInputElement).disabled) continue;
@@ -738,7 +739,12 @@ export function scanIndividualElements(
     }
 
     const sectionHeading = getSectionHeading(el);
-    const dedupeKey = label + ':' + type + ':' + sectionHeading;
+    // Include element identity in the dedupe key. Same label + same section
+    // can still be two distinct fields (e.g. Start Date "Month" vs End Date
+    // "Month" in iCIMS work experience), and a pure label+type+section key
+    // would collapse them into one.
+    const identity = el.id || el.getAttribute('name') || '';
+    const dedupeKey = label + ':' + type + ':' + sectionHeading + ':' + identity;
     if (seenLabels.has(dedupeKey)) continue;
     seenLabels.add(dedupeKey);
 
@@ -793,6 +799,35 @@ export function scanIndividualElements(
       sectionHeading,
     });
   }
+
+  // Collapse react-select phantom duplicates: Greenhouse (and similar) render
+  // both a labeled input (#question_NNNN) and a sibling role=combobox search
+  // input for the same dropdown. The former gets widgetType 'react-select',
+  // the latter 'autocomplete' — so they have different identities and both
+  // pass the per-element dedupe. Here we drop any anonymous result whose
+  // (label, section) prefix already has a sibling with an element id.
+  const identified = new Set<string>();
+  for (let i = startIndex; i < results.length; i++) {
+    const r = results[i]!;
+    if (r.element.id) identified.add(r.label + '\0' + (r.sectionHeading ?? ''));
+  }
+  if (identified.size > 0) {
+    const kept: ScanResult[] = [];
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i]!;
+      if (
+        i >= startIndex &&
+        !r.element.id &&
+        (r.widgetType === 'autocomplete' || r.widgetType === 'react-select') &&
+        identified.has(r.label + '\0' + (r.sectionHeading ?? ''))
+      ) {
+        continue;
+      }
+      kept.push(r);
+    }
+    results.length = 0;
+    results.push(...kept);
+  }
 }
 
 /**
@@ -801,11 +836,44 @@ export function scanIndividualElements(
  * Walks up the DOM from each unclassified field to find the nearest section heading
  * and assigns the appropriate prefixed category.
  */
+const HOME_ADDRESS_CATEGORIES = new Set([
+  'address1',
+  'address2',
+  'city',
+  'state',
+  'zipCode',
+  'country',
+  'location',
+]);
+
+/**
+ * Address fields inside a work-experience section are the employer's address,
+ * not the user's. Profile data has only the user's home address, so filling
+ * these with the home address is incorrect. Scrub those classifications.
+ */
+export function pruneWorkSectionAddresses(results: ScanResult[]): void {
+  for (const field of results) {
+    if (!field.category || !HOME_ADDRESS_CATEGORIES.has(field.category)) continue;
+    const heading = (field.sectionHeading || getSectionHeading(field.element)).toLowerCase();
+    if (!heading) continue;
+    const isWork = /work|experience|employment|professional|employer/i.test(heading);
+    if (isWork) {
+      field.category = '__skip__';
+      field.classifiedBy = 'heuristic';
+    }
+  }
+}
+
 export function classifyByContext(results: ScanResult[]): void {
+  pruneWorkSectionAddresses(results);
+
   for (const field of results) {
     if (field.category) continue;
 
-    const label = field.label.toLowerCase().trim();
+    // Strip trailing required-marker asterisks (e.g., "Start date month*") and
+    // any trailing whitespace so anchored regexes still match.
+    const normalizedLabel = field.label.replace(/[\s*✱]+$/u, '').trim();
+    const label = normalizedLabel.toLowerCase();
     const heading = (field.sectionHeading || getSectionHeading(field.element)).toLowerCase();
     // Also check ancestor class names/IDs for context (Greenhouse uses education--container, etc.)
     let ancestorContext = '';
@@ -827,7 +895,7 @@ export function classifyByContext(results: ScanResult[]): void {
     const isWork = /work|experience|employment|job|company|employer/i.test(section);
 
     // Date month/year fields
-    if (/^(start|end|from|to)\s*(date\s*)?(month|year)$/i.test(field.label)) {
+    if (/^(start|end|from|to)\s*(date\s*)?(month|year)$/i.test(normalizedLabel)) {
       const isStart = /^(start|from)/i.test(label);
       const isMonth = /month/i.test(label);
       if (isEdu) {
@@ -852,8 +920,9 @@ export function classifyByContext(results: ScanResult[]): void {
       continue;
     }
 
-    // Generic "Start date" / "End date" (combined month/year)
-    if (/^(start|end|from|to)\s*date$/i.test(field.label)) {
+    // Generic "Start date" / "End date" — also catches composite labels like
+    // "Start Date (Month / Day / Year)" emitted by iCIMS date-triples.
+    if (/^(start|end|from|to)\s*date\b/i.test(normalizedLabel)) {
       if (isEdu) {
         field.category = /^(start|from)/i.test(label) ? 'eduStartYear' : 'graduationDate';
         field.classifiedBy = 'heuristic';
@@ -864,9 +933,20 @@ export function classifyByContext(results: ScanResult[]): void {
       continue;
     }
 
+    // Education-specific: "Date Received / Date Expected to Receive"
+    if (
+      /date\s*(received|expected|earned|awarded|graduat|of\s+graduation)/i.test(normalizedLabel)
+    ) {
+      if (isEdu) {
+        field.category = 'graduationDate';
+        field.classifiedBy = 'heuristic';
+      }
+      continue;
+    }
+
     // "Location" in work section → workLocation, but only when we have a real heading
     // (not just ancestor class hints, which are unreliable for this ambiguous label)
-    if (/^location$/i.test(field.label)) {
+    if (/^location$/i.test(normalizedLabel)) {
       if (isWork && heading) {
         field.category = 'workLocation';
         field.classifiedBy = 'heuristic';
@@ -875,7 +955,7 @@ export function classifyByContext(results: ScanResult[]): void {
     }
 
     // "Description" in work section → workDescription
-    if (/^description$/i.test(field.label)) {
+    if (/^description$/i.test(normalizedLabel)) {
       if (isWork) {
         field.category = 'workDescription';
         field.classifiedBy = 'heuristic';
@@ -884,7 +964,7 @@ export function classifyByContext(results: ScanResult[]): void {
     }
 
     // "Name" / "Title" — depends on section (require real heading, not just ancestor class hints)
-    if (/^name$/i.test(field.label)) {
+    if (/^name$/i.test(normalizedLabel)) {
       if (isWork && heading) {
         field.category = 'company';
         field.classifiedBy = 'heuristic';
@@ -894,7 +974,7 @@ export function classifyByContext(results: ScanResult[]): void {
       }
       continue;
     }
-    if (/^title$/i.test(field.label)) {
+    if (/^title$/i.test(normalizedLabel)) {
       if (isWork && heading) {
         field.category = 'jobTitle';
         field.classifiedBy = 'heuristic';
@@ -903,7 +983,9 @@ export function classifyByContext(results: ScanResult[]): void {
     }
 
     // "Discipline" / "Major" / "Field of Study" in education section
-    if (/^(discipline|major|field.?of.?study|area.?of.?study|concentration)$/i.test(field.label)) {
+    if (
+      /^(discipline|major|field.?of.?study|area.?of.?study|concentration)$/i.test(normalizedLabel)
+    ) {
       if (isEdu) {
         field.category = 'fieldOfStudy';
         field.classifiedBy = 'heuristic';
@@ -912,7 +994,7 @@ export function classifyByContext(results: ScanResult[]): void {
     }
 
     // "Degree" in education section
-    if (/^degree$/i.test(field.label)) {
+    if (/^degree$/i.test(normalizedLabel)) {
       if (isEdu) {
         field.category = 'degree';
         field.classifiedBy = 'heuristic';
@@ -921,7 +1003,7 @@ export function classifyByContext(results: ScanResult[]): void {
     }
 
     // "GPA" / "Grade" in education section
-    if (/^(gpa|grade|grade.*average)$/i.test(field.label)) {
+    if (/^(gpa|grade|grade.*average)$/i.test(normalizedLabel)) {
       if (isEdu) {
         field.category = 'gpa';
         field.classifiedBy = 'heuristic';

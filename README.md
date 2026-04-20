@@ -75,7 +75,7 @@ pnpm lint         # lint
 
 ### ML Training
 
-The training pipeline lives in `ml/`. See `ml/train_multitask.py` for the multi-task training script and `ml/export_multitask.py` for ONNX export with vocab trimming.
+The training pipeline lives in `ml/`. Run `make -C ml retrain` for the end-to-end flow (augment → fine-tune → vocab-trim → ONNX export → quantize → regression eval). Entry point is `ml/train_and_compare.py`.
 
 ## License
 

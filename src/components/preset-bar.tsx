@@ -1,8 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, Plus, Pencil, Trash2, Sun, Moon } from 'lucide-react';
+import { ChevronDown, Plus, Pencil, Trash2, Download, Upload, Check, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useTheme } from '@/hooks/use-theme';
 import type { Preset } from '@/lib/storage';
 
 const MAX_PRESETS = 5;
@@ -14,6 +13,8 @@ interface PresetBarProps {
   onAdd: (name: string) => void;
   onRequestDelete: (presetId: string) => void;
   onRename: (presetId: string, name: string) => void;
+  onExport?: () => void;
+  onImport?: (file: File) => void | Promise<void>;
 }
 
 export function PresetBar({
@@ -23,16 +24,45 @@ export function PresetBar({
   onAdd,
   onRequestDelete,
   onRename,
+  onExport,
+  onImport,
 }: PresetBarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [showPresetHint, setShowPresetHint] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importSuccess, setImportSuccess] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const activePreset = presets.find((p) => p.id === activePresetId);
-  const { theme, toggle: toggleTheme } = useTheme();
+
+  const handleImportClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) setPendingFile(file);
+    e.target.value = '';
+  }, []);
+
+  const confirmImport = useCallback(async () => {
+    if (!pendingFile) return;
+    try {
+      setImportError(null);
+      setImportSuccess(false);
+      await onImport?.(pendingFile);
+      setImportSuccess(true);
+      setTimeout(() => setImportSuccess(false), 3000);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Import failed');
+    }
+    setPendingFile(null);
+  }, [pendingFile, onImport]);
 
   // Focus rename input
   useEffect(() => {
@@ -84,7 +114,7 @@ export function PresetBar({
   };
 
   return (
-    <div className="flex items-center gap-2 px-5 py-4 border-b border-border bg-background">
+    <div className="relative flex items-center gap-2 px-5 py-4 border-b border-border bg-background">
       <span className="text-sm font-medium tracking-tight shrink-0">Mira</span>
       <div className="w-px h-4 bg-border mx-1" />
       <div className="relative flex-1 min-w-0" ref={menuRef}>
@@ -253,24 +283,130 @@ export function PresetBar({
         </AnimatePresence>
       </div>
 
-      <button
-        type="button"
-        onClick={toggleTheme}
-        title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
-        className="flex items-center justify-center w-6 h-8 -mr-1 text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0"
-      >
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={theme}
-            initial={{ rotate: -90, opacity: 0, scale: 0.5 }}
-            animate={{ rotate: 0, opacity: 1, scale: 1 }}
-            exit={{ rotate: 90, opacity: 0, scale: 0.5 }}
-            transition={{ duration: 0.2 }}
+      <div className="flex items-center -mr-1 shrink-0">
+        {onExport && (
+          <button
+            type="button"
+            onClick={onExport}
+            title="Export profile"
+            aria-label="Export profile"
+            className="flex items-center justify-center w-6 h-8 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           >
-            {theme === 'light' ? <Moon size={14} /> : <Sun size={14} />}
+            <Download size={13} />
+          </button>
+        )}
+        {onImport && (
+          <button
+            type="button"
+            onClick={handleImportClick}
+            title="Import profile"
+            aria-label="Import profile"
+            className="flex items-center justify-center w-6 h-8 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+          >
+            <Upload size={13} />
+          </button>
+        )}
+      </div>
+
+      {onImport && (
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json"
+          onChange={handleFileChange}
+          className="hidden"
+        />
+      )}
+
+      {/* Import feedback (inline, absolute under header) */}
+      <AnimatePresence>
+        {importError && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.15 }}
+            className="absolute left-0 right-0 top-full mt-1 overflow-hidden px-1"
+          >
+            <div className="flex items-center justify-between gap-2 p-2 rounded-md bg-destructive/10 text-destructive text-[11px]">
+              <span>{importError}</span>
+              <button
+                type="button"
+                onClick={() => setImportError(null)}
+                className="shrink-0 hover:opacity-70 cursor-pointer"
+                aria-label="Dismiss"
+              >
+                <X size={12} />
+              </button>
+            </div>
           </motion.div>
-        </AnimatePresence>
-      </button>
+        )}
+        {importSuccess && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.15 }}
+            className="absolute left-0 right-0 top-full mt-1 overflow-hidden px-1"
+          >
+            <div className="flex items-center gap-2 p-2 rounded-md bg-green-600/10 text-green-600 text-[11px]">
+              <Check size={12} />
+              <span>Profile imported successfully</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Import confirm modal */}
+      <AnimatePresence>
+        {pendingFile && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+            onClick={() => setPendingFile(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 8 }}
+              transition={{ duration: 0.15 }}
+              className="bg-popover border border-border rounded-lg p-5 mx-4 w-full max-w-[320px] shadow-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start gap-3 mb-5">
+                <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 shrink-0">
+                  <Upload size={16} className="text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-medium text-foreground">Import profile</h3>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    This will replace the current preset&apos;s profile with the imported data.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setPendingFile(null)}
+                  className="h-8 px-3 rounded-lg text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmImport}
+                  className="h-8 px-3 rounded-lg text-[12px] font-medium bg-primary text-primary-foreground hover:opacity-90 active:scale-[0.97] transition-all cursor-pointer"
+                >
+                  Import
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

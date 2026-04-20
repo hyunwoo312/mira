@@ -3,15 +3,17 @@
  * Matches fill-bar.tsx log patterns for visual consistency.
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { FillResult, LogItem, Phase } from './fill-overlay';
+import { formatDebugLog } from '@/lib/autofill/debug-log';
 
 export interface OverlayState {
   visible: boolean;
   phase: Phase | null;
   result: FillResult | null;
   logs: LogItem[];
+  pageUrl: string;
   timerActive: boolean;
   timerPaused: boolean;
   isDark: boolean;
@@ -108,6 +110,7 @@ export function OverlayApp({
                 key="result"
                 result={state.result}
                 logs={state.logs}
+                pageUrl={state.pageUrl}
                 logExpanded={logExpanded}
                 onToggleLog={toggleLog}
                 onOpenPanel={onOpenPanel}
@@ -191,16 +194,30 @@ function FillingView() {
 function ResultView({
   result,
   logs,
+  pageUrl,
   logExpanded,
   onToggleLog,
   onOpenPanel,
 }: {
   result: FillResult;
   logs: LogItem[];
+  pageUrl: string;
   logExpanded: boolean;
   onToggleLog: () => void;
   onOpenPanel: () => void;
 }) {
+  const [copied, setCopied] = useState(false);
+  const copyLog = useCallback(() => {
+    const text = formatDebugLog(result, logs, pageUrl);
+    navigator.clipboard.writeText(text).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      },
+      () => {},
+    );
+  }, [result, logs, pageUrl]);
+
   const ratio = result.total > 0 ? result.filled / result.total : 0;
   const statusLabel =
     result.total === 0
@@ -323,6 +340,12 @@ function ResultView({
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.25, ease }}
           >
+            <div className="ov-log-panel-head">
+              <button type="button" className="ov-copy-btn" onClick={copyLog}>
+                {copied ? <CheckIcon /> : <CopyIcon />}
+                <span>{copied ? 'Copied' : 'Copy'}</span>
+              </button>
+            </div>
             <div className="ov-log-scroll">
               {grouped.failed.length > 0 && (
                 <LogGroup label="Failed" items={grouped.failed} color="red" />
@@ -581,6 +604,41 @@ function CloseIcon() {
       strokeLinejoin="round"
     >
       <path d="M18 6L6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="#16a34a"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M20 6L9 17l-5-5" />
     </svg>
   );
 }

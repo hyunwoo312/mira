@@ -10,7 +10,20 @@ import { profileToFillMap } from '@/lib/autofill/profile-map';
 import { loadPresetStore } from '@/lib/storage';
 import { loadFiles } from '@/lib/file-storage';
 import { saveApplication, parsePageTitle } from '@/lib/application-store';
+import { loadSettings } from '@/lib/settings';
 import { ML_IDLE_TIMEOUT_MS, FILL_COUNT_KEY, CHANGELOG_KEY } from '@/lib/constants';
+
+const SALARY_KEYS = ['salaryMin', 'salaryMax', 'salaryRange'];
+const EEO_KEYS = [
+  'gender',
+  'transgender',
+  'sexualOrientation',
+  'race',
+  'veteranStatus',
+  'disabilityStatus',
+  'lgbtq',
+  'communities',
+];
 
 export default defineBackground(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
@@ -200,11 +213,20 @@ export default defineBackground(() => {
       }
     }
 
-    // Pre-warm ML model so it's ready when content script needs it
-    await ensureOffscreen();
+    const settings = await loadSettings();
+
+    if (!settings.mlDisabled) {
+      await ensureOffscreen();
+    }
     onPhase?.('filling');
 
     const fillMap = profileToFillMap(profile);
+    if (settings.skipSalary) {
+      for (const k of SALARY_KEYS) delete fillMap[k];
+    }
+    if (settings.skipEeo) {
+      for (const k of EEO_KEYS) delete fillMap[k];
+    }
 
     const files = await loadFiles(targetPresetId);
     const activeResume = files.find((f) => f.category === 'resume' && f.isActive);
@@ -234,7 +256,16 @@ export default defineBackground(() => {
       github: profile.github,
       portfolio: profile.portfolio,
     };
-    const fillMessage = { type: 'FILL', fillMap, answerBank, profile: profileData };
+    const fillMessage = {
+      type: 'FILL',
+      fillMap,
+      answerBank,
+      profile: profileData,
+      settings: {
+        mlDisabled: settings.mlDisabled,
+        verboseLogging: settings.verboseLogging,
+      },
+    };
 
     const response = await chrome.tabs
       .sendMessage(tabId, fillMessage, { frameId: targetFrameId })
@@ -242,9 +273,8 @@ export default defineBackground(() => {
 
     const res = response?.result ?? { filled: 0, failed: 0, skipped: 0, total: 0, logs: [] };
 
-    // Auto-save to application history
     const atsName = res.ats ?? 'generic';
-    if (res.total > 0 && atsName !== 'generic') {
+    if (settings.saveApplications && res.total > 0 && atsName !== 'generic') {
       const pageUrl = tab.url ?? '';
       const {
         company,
@@ -378,8 +408,16 @@ export default defineBackground(() => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       const tabId = tab?.id;
 
+      const settings = await loadSettings();
       const notify = (msg: Record<string, unknown>) => {
-        if (tabId) chrome.tabs.sendMessage(tabId, msg, { frameId: 0 }).catch(() => {});
+        if (!tabId) return;
+        if (
+          settings.hideOverlay &&
+          typeof msg.type === 'string' &&
+          msg.type.startsWith('FILL_OVERLAY')
+        )
+          return;
+        chrome.tabs.sendMessage(tabId, msg, { frameId: 0 }).catch(() => {});
       };
 
       try {
@@ -400,7 +438,7 @@ export default defineBackground(() => {
         notify({
           type: 'FILL_OVERLAY_RESULT',
           result: fillResult.result,
-          logs: (fillResult.logs as unknown[]).slice(0, 30),
+          logs: (fillResult.logs as unknown[]).slice(0, 200),
         });
         sidePanelPort?.postMessage({ type: 'FILL_RESULT', ...fillResult });
       } catch {
@@ -450,8 +488,16 @@ export default defineBackground(() => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       const tabId = tab?.id;
 
+      const settings = await loadSettings();
       const notify = (msg: Record<string, unknown>) => {
-        if (tabId) chrome.tabs.sendMessage(tabId, msg, { frameId: 0 }).catch(() => {});
+        if (!tabId) return;
+        if (
+          settings.hideOverlay &&
+          typeof msg.type === 'string' &&
+          msg.type.startsWith('FILL_OVERLAY')
+        )
+          return;
+        chrome.tabs.sendMessage(tabId, msg, { frameId: 0 }).catch(() => {});
       };
 
       try {
@@ -472,7 +518,7 @@ export default defineBackground(() => {
         notify({
           type: 'FILL_OVERLAY_RESULT',
           result: fillResult.result,
-          logs: (fillResult.logs as unknown[]).slice(0, 30),
+          logs: (fillResult.logs as unknown[]).slice(0, 200),
         });
 
         sidePanelPort?.postMessage({ type: 'FILL_RESULT', ...fillResult });
@@ -530,6 +576,11 @@ export default defineBackground(() => {
 
   // ── Message routing ────────────────────────────────────────────────
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // Reject messages that didn't originate from this extension. MV3 without
+    // `externally_connectable` already blocks foreign origins, but the id
+    // check is cheap defense-in-depth.
+    if (sender.id && sender.id !== chrome.runtime.id) return false;
+
     if (message.type === 'OPEN_SIDE_PANEL') {
       const tabId = sender.tab?.id;
       if (tabId) {
@@ -549,8 +600,16 @@ export default defineBackground(() => {
       (async () => {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         const tabId = tab?.id;
+        const settings = await loadSettings();
         const notify = (msg: Record<string, unknown>) => {
-          if (tabId) chrome.tabs.sendMessage(tabId, msg, { frameId: 0 }).catch(() => {});
+          if (!tabId) return;
+          if (
+            settings.hideOverlay &&
+            typeof msg.type === 'string' &&
+            msg.type.startsWith('FILL_OVERLAY')
+          )
+            return;
+          chrome.tabs.sendMessage(tabId, msg, { frameId: 0 }).catch(() => {});
         };
 
         try {
@@ -568,7 +627,7 @@ export default defineBackground(() => {
           notify({
             type: 'FILL_OVERLAY_RESULT',
             result: fillResult.result,
-            logs: (fillResult.logs as unknown[]).slice(0, 30),
+            logs: (fillResult.logs as unknown[]).slice(0, 200),
           });
           sendResponse(fillResult);
         } catch (err) {
@@ -586,80 +645,50 @@ export default defineBackground(() => {
       return true;
     }
 
-    if (message.type === 'ML_CLASSIFY') {
-      if (!Array.isArray(message.fields)) {
-        sendResponse({ classifications: [], error: 'Invalid fields' });
-        return true;
+    const FORWARDS: Record<
+      string,
+      {
+        offscreen: string;
+        payload: (m: Record<string, unknown>) => Record<string, unknown>;
+        fallback: Record<string, unknown>;
       }
-      (async () => {
-        try {
-          await ensureOffscreen();
-          resetIdleTimer();
-          const response = await chrome.runtime.sendMessage({
-            type: 'OFFSCREEN_CLASSIFY',
-            requestId: crypto.randomUUID(),
-            fields: message.fields,
-          });
-          sendResponse(response ?? { classifications: [], error: 'No response from offscreen' });
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : 'Unknown error';
-          sendResponse({ classifications: [], error: msg });
-        }
-      })();
-      return true;
-    }
+    > = {
+      ML_CLASSIFY: {
+        offscreen: 'OFFSCREEN_CLASSIFY',
+        payload: (m) => ({ fields: m.fields }),
+        fallback: { classifications: [] },
+      },
+      ML_MATCH_ANSWERS: {
+        offscreen: 'OFFSCREEN_MATCH_ANSWERS',
+        payload: (m) => ({ fieldLabels: m.fieldLabels, questions: m.questions }),
+        fallback: { matches: [] },
+      },
+      ML_SCORE_OPTIONS: {
+        offscreen: 'OFFSCREEN_SCORE_OPTIONS',
+        payload: (m) => ({
+          question: m.question,
+          profileValue: m.profileValue,
+          options: m.options,
+        }),
+        fallback: { bestIndex: -1, score: 0 },
+      },
+    };
 
-    if (message.type === 'ML_MATCH_ANSWERS') {
-      if (!Array.isArray(message.fieldLabels) || !Array.isArray(message.questions)) {
-        sendResponse({ matches: [], error: 'Invalid parameters' });
-        return true;
-      }
+    const forwardConfig = FORWARDS[message.type];
+    if (forwardConfig) {
       (async () => {
         try {
           await ensureOffscreen();
           resetIdleTimer();
           const response = await chrome.runtime.sendMessage({
-            type: 'OFFSCREEN_MATCH_ANSWERS',
+            type: forwardConfig.offscreen,
             requestId: crypto.randomUUID(),
-            fieldLabels: message.fieldLabels,
-            questions: message.questions,
+            ...forwardConfig.payload(message),
           });
-          sendResponse(response ?? { matches: [], error: 'No response' });
+          sendResponse(response ?? { ...forwardConfig.fallback, error: 'No response' });
         } catch (err: unknown) {
           sendResponse({
-            matches: [],
-            error: err instanceof Error ? err.message : 'Unknown error',
-          });
-        }
-      })();
-      return true;
-    }
-
-    if (message.type === 'ML_SCORE_OPTIONS') {
-      if (
-        typeof message.question !== 'string' ||
-        typeof message.profileValue !== 'string' ||
-        !Array.isArray(message.options)
-      ) {
-        sendResponse({ bestIndex: -1, score: 0, error: 'Invalid parameters' });
-        return true;
-      }
-      (async () => {
-        try {
-          await ensureOffscreen();
-          resetIdleTimer();
-          const response = await chrome.runtime.sendMessage({
-            type: 'OFFSCREEN_SCORE_OPTIONS',
-            requestId: crypto.randomUUID(),
-            question: message.question,
-            profileValue: message.profileValue,
-            options: message.options,
-          });
-          sendResponse(response ?? { bestIndex: -1, score: 0, error: 'No response' });
-        } catch (err: unknown) {
-          sendResponse({
-            bestIndex: -1,
-            score: 0,
+            ...forwardConfig.fallback,
             error: err instanceof Error ? err.message : 'Unknown error',
           });
         }

@@ -4,10 +4,11 @@ import { greenhouse } from './greenhouse';
 import { lever } from './lever';
 import { ashby } from './ashby';
 import { workday } from './workday';
+import { icims } from './icims';
 import { generic } from './generic';
 
 /** Ordered list of ATS scanners. First match wins; generic is the fallback. */
-const scanners: ATSScanner[] = [workday, greenhouse, lever, ashby];
+const scanners: ATSScanner[] = [workday, greenhouse, lever, ashby, icims];
 
 /** Detect which ATS owns this page. Returns 'generic' if none match. */
 export function detectATS(): ATSName {

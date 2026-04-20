@@ -1,7 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-
-type Theme = 'light' | 'dark';
-const STORAGE_KEY = 'mira_theme';
+import { THEME_STORAGE_KEY as STORAGE_KEY, type Theme } from '@/lib/theme';
 
 export function useTheme() {
   const [theme, setThemeState] = useState<Theme>('light');

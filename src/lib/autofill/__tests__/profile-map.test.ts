@@ -194,6 +194,26 @@ describe('profileToFillMap', () => {
       const noMap = profileToFillMap(makeProfile({ willingToRelocate: false }));
       expect(noMap.canWorkFromLocation).toBe('No');
     });
+
+    it('should convert needsRelocationAssistance true to Yes', () => {
+      const map = profileToFillMap(makeProfile({ needsRelocationAssistance: true }));
+      expect(map.relocationAssistance).toBe('Yes');
+    });
+
+    it('should convert needsRelocationAssistance false to No (filtered out as empty)', () => {
+      // 'No' is a truthy string so it stays in the map; default is false → 'No'
+      const map = profileToFillMap(makeProfile({ needsRelocationAssistance: false }));
+      expect(map.relocationAssistance).toBe('No');
+    });
+
+    it('should keep relocate and relocationAssistance independent', () => {
+      // willing to relocate, but does not need company assistance
+      const map = profileToFillMap(
+        makeProfile({ willingToRelocate: true, needsRelocationAssistance: false }),
+      );
+      expect(map.relocate).toBe('Yes');
+      expect(map.relocationAssistance).toBe('No');
+    });
   });
 
   // ─── Age-derived fields ────────────────────────────────────────────

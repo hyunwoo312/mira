@@ -3,6 +3,7 @@ import { logger } from '@/lib/logger';
 import { initBridge } from '@/lib/autofill/bridge';
 import { detectATS } from '@/lib/autofill/scanners/index';
 import { prepareAndFillWorkdayExperience } from '@/lib/autofill/workday/experience';
+import { dedupeLogs } from '@/lib/autofill/pipeline';
 import type { FillOverlay } from '@/lib/overlay/fill-overlay';
 
 export default defineContentScript({
@@ -33,7 +34,10 @@ export default defineContentScript({
       return overlay;
     }
 
-    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      // Reject messages not from this extension's own scripts.
+      if (sender.id && sender.id !== chrome.runtime.id) return false;
+
       // ── Overlay messages ──
       if (message.type === 'FILL_OVERLAY_SHOW') {
         getOverlay().then((o) => o?.show(message.phase));
@@ -63,6 +67,8 @@ export default defineContentScript({
             document.querySelector('.application-question') || // Lever
             document.querySelector('#app_body, .job-app, #application') || // Greenhouse
             document.querySelector('#application-form, .application--form') || // Greenhouse embedded
+            document.querySelector('[id*="ProfileFields."]') || // iCIMS (form fields live inside the iframe)
+            document.querySelector('.iCIMS_Anchor, .iCIMS_InnerIframe') || // iCIMS wrappers
             document.querySelector(
               'form[action*="greenhouse"], form[action*="lever"], form[action*="ashby"]',
             )
@@ -89,6 +95,20 @@ export default defineContentScript({
             error: 'fillMap too large',
           });
           return true;
+        }
+        // Guard individual values too — a resume base64 fits in ~7MB, so 10MB
+        // is a generous ceiling. Anything bigger is almost certainly an
+        // injection attempt or a serialization bug.
+        const MAX_VALUE_LEN = 10_000_000;
+        for (const v of Object.values(fillMap)) {
+          if (typeof v === 'string' && v.length > MAX_VALUE_LEN) {
+            sendResponse({
+              type: 'FILL_RESULT',
+              result: { filled: 0, total: 0, failed: 0, skipped: 0, logs: [], mlAvailable: false },
+              error: 'fillMap value too large',
+            });
+            return true;
+          }
         }
 
         fillController?.abort();
@@ -119,17 +139,27 @@ export default defineContentScript({
             );
           }
 
+          const settings =
+            message.settings && typeof message.settings === 'object'
+              ? (message.settings as { mlDisabled?: boolean; verboseLogging?: boolean })
+              : {};
+
           const result = await fillPage(
             fillMap as Record<string, string>,
             answerBank,
             fillController!.signal,
+            { mlDisabled: settings.mlDisabled === true },
           );
 
-          // Merge pre-fill logs into main result
+          // Workday preLogs arrive after fillPage's own dedup, so re-dedup
+          // against the merged set or duplicates leak through.
           if (preLogs.length > 0) {
-            result.logs.unshift(...(preLogs as typeof result.logs));
-            result.filled += preLogs.filter((l) => l.status === 'filled').length;
-            result.total += preLogs.length;
+            const merged = [...(preLogs as typeof result.logs), ...result.logs];
+            result.logs = dedupeLogs(merged);
+            result.filled = result.logs.filter((l) => l.status === 'filled').length;
+            result.failed = result.logs.filter((l) => l.status === 'failed').length;
+            result.skipped = result.logs.filter((l) => l.status === 'skipped').length;
+            result.total = result.filled + result.failed + result.skipped;
           }
 
           return result;

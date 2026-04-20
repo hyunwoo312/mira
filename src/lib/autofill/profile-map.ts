@@ -150,6 +150,7 @@ export function profileToFillMap(p: Profile): Record<string, string> {
     workAuth: p.workAuthorization ? 'Yes' : 'No',
     sponsorship: p.sponsorshipNeeded ? 'Yes' : 'No',
     relocate: p.willingToRelocate ? 'Yes' : 'No',
+    relocationAssistance: p.needsRelocationAssistance ? 'Yes' : 'No',
     willingToTravel: p.willingToTravel ? 'Yes' : 'No',
     isHispanic: isHispanic ? 'Yes' : 'No',
     referral: 'No',
@@ -157,6 +158,11 @@ export function profileToFillMap(p: Profile): Record<string, string> {
     phoneDeviceType: 'Mobile',
     // Workday expects digits-only phone (no formatting, no country code)
     phoneDigits: p.phone.replace(/^\+?1?\s*/, '').replace(/\D/g, ''),
+    // Workday phone-code options are "<Country> (+N)". Pass the canonical
+    // country name so token overlap favors the right row.
+    phoneCountryCode: /^united states|^us$|^usa$/i.test(p.country.trim())
+      ? 'United States of America'
+      : p.country,
     hasExperience: 'Yes',
     canProvideDoc: 'Yes',
     consent: 'Yes',
@@ -168,7 +174,15 @@ export function profileToFillMap(p: Profile): Record<string, string> {
     ageRange: age !== null ? ageRange(age) : '',
     canWorkFromLocation: p.willingToRelocate ? 'Yes' : 'No',
     accommodationRequest: 'No',
-    visaType: p.sponsorshipNeeded ? visaStr : '',
+    addressType: 'Home',
+    graduationStatus: (() => {
+      const edu = p.education[0];
+      if (!edu?.gradYear) return '';
+      const now = new Date();
+      const gradDate = new Date(edu.gradYear, (edu.gradMonth ?? 12) - 1);
+      return gradDate > now ? 'In Progress' : 'Received';
+    })(),
+    visaType: visaStr,
     securityClearance: clearanceStr,
     // ITAR/EAR export control: U.S. person = citizen, permanent resident, asylee, refugee
     // Derive from sponsorship: no sponsorship needed → likely U.S. person
@@ -217,6 +231,7 @@ export function profileToFillMap(p: Profile): Record<string, string> {
       if (w?.current) return '';
       return w?.endYear ? String(w.endYear) : '';
     })(),
+    currentRole: p.workExperience[0]?.current ? 'Yes' : '',
     eduStartMonth: monthName(p.education[0]?.startMonth),
     eduStartYear: p.education[0]?.startYear ? String(p.education[0].startYear) : '',
     eduGradMonth: monthName(p.education[0]?.gradMonth),

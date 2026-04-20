@@ -6,17 +6,20 @@ import {
   AlertTriangle,
   Copy,
   CheckCheck,
-  Download,
-  Upload,
-  Trash2,
   RotateCcw,
   ArrowRight,
   Loader2,
   Star,
   FileText,
+  Settings as SettingsIcon,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { saveFeedback } from '@/lib/autofill/feedback';
+import { formatDebugLog } from '@/lib/autofill/debug-log';
+import { useTheme } from '@/hooks/use-theme';
+import { SettingsModal } from '@/components/settings-modal';
 import {
   CWS_URL,
   FILL_COUNT_KEY,
@@ -57,9 +60,8 @@ interface FillBarProps {
   logs?: FillLog[];
   pageUrl?: string;
   profileReady?: boolean;
-  onExport?: () => void;
-  onImport?: (file: File) => void | Promise<void>;
   onDeleteAll?: () => void;
+  onClearAnswerBank?: () => Promise<void> | void;
 }
 
 const ease = [0.25, 0.1, 0.25, 1] as const;
@@ -71,33 +73,39 @@ export function FillBar({
   logs = [],
   pageUrl,
   profileReady = true,
-  onExport,
-  onImport,
   onDeleteAll,
+  onClearAnswerBank,
 }: FillBarProps) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [showMenu, setShowMenu] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showResult, setShowResult] = useState(false);
   const [showRateBanner, setShowRateBanner] = useState(false);
   const [showChangelogBanner, setShowChangelogBanner] = useState(false);
   const [showChangelogModal, setShowChangelogModal] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const { theme, toggle: toggleTheme } = useTheme();
 
-  // Check for rate prompt and changelog banner on mount
   useEffect(() => {
-    chrome.storage.local.get([FILL_COUNT_KEY, RATE_DISMISSED_KEY, CHANGELOG_KEY]).then((data) => {
+    const syncBanners = async () => {
+      const data = await chrome.storage.local.get([
+        FILL_COUNT_KEY,
+        RATE_DISMISSED_KEY,
+        CHANGELOG_KEY,
+      ]);
       const count = (data[FILL_COUNT_KEY] as number) ?? 0;
       const dismissed = data[RATE_DISMISSED_KEY] as boolean;
-      if (count >= 5 && !dismissed) setShowRateBanner(true);
-
+      setShowRateBanner(count >= 5 && !dismissed);
       const clVersion = data[CHANGELOG_KEY] as string | undefined;
-      if (clVersion && CHANGELOG[clVersion]) {
-        setShowChangelogBanner(true);
+      setShowChangelogBanner(!!(clVersion && CHANGELOG[clVersion]));
+    };
+    syncBanners();
+    const listener = (changes: Record<string, chrome.storage.StorageChange>) => {
+      if (FILL_COUNT_KEY in changes || RATE_DISMISSED_KEY in changes || CHANGELOG_KEY in changes) {
+        syncBanners();
       }
-    });
+    };
+    chrome.storage.local.onChanged.addListener(listener);
+    return () => chrome.storage.local.onChanged.removeListener(listener);
   }, []);
 
   const dismissRateBanner = useCallback(() => {
@@ -105,20 +113,17 @@ export function FillBar({
     chrome.storage.local.set({ [RATE_DISMISSED_KEY]: true });
   }, []);
 
-  const dismissChangelogBanner = useCallback(() => {
-    setShowChangelogBanner(false);
-    chrome.storage.local.remove(CHANGELOG_KEY);
-  }, []);
-
   const handleRate = useCallback(() => {
     window.open(CWS_URL, '_blank');
-    setShowMenu(false);
   }, []);
 
   const handleChangelog = useCallback(() => {
     setShowChangelogModal(true);
-    setShowMenu(false);
-  }, []);
+    if (showChangelogBanner) {
+      setShowChangelogBanner(false);
+      chrome.storage.local.remove(CHANGELOG_KEY);
+    }
+  }, [showChangelogBanner]);
 
   // Show result count briefly, then morph to Re-fill
   useEffect(() => {
@@ -134,111 +139,18 @@ export function FillBar({
     return () => clearTimeout(t);
   }, [result, isLoading]);
 
-  // Close menu on outside click
-  useEffect(() => {
-    if (!showMenu) return;
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setShowMenu(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showMenu]);
-
-  const handleExport = useCallback(() => {
-    onExport?.();
-    setShowMenu(false);
-  }, [onExport]);
-  const handleImportClick = useCallback(() => {
-    fileInputRef.current?.click();
-    setShowMenu(false);
-  }, []);
-  const [importError, setImportError] = useState<string | null>(null);
-  const [importSuccess, setImportSuccess] = useState(false);
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setPendingFile(file);
-    }
-    e.target.value = '';
-  }, []);
-  const confirmImport = useCallback(async () => {
-    if (!pendingFile) return;
-    try {
-      setImportError(null);
-      setImportSuccess(false);
-      await onImport?.(pendingFile);
-      setImportSuccess(true);
-      setTimeout(() => setImportSuccess(false), 3000);
-    } catch (err) {
-      setImportError(err instanceof Error ? err.message : 'Import failed');
-    }
-    setPendingFile(null);
-  }, [pendingFile, onImport]);
   const handleDeleteAll = useCallback(() => {
-    setShowDeleteConfirm(true);
-    setShowMenu(false);
-  }, []);
-  const confirmDeleteAll = useCallback(() => {
     onDeleteAll?.();
-    setShowDeleteConfirm(false);
   }, [onDeleteAll]);
 
   const copyLogs = useCallback(() => {
-    // Build rich debug report for scanner debugging
-    const lines: string[] = [];
-
-    // Header
-    lines.push('=== MIRA FILL DEBUG LOG ===');
-    if (pageUrl) lines.push(`URL: ${pageUrl}`);
-    if (result) {
-      lines.push(`ATS: ${result.ats ?? 'unknown'}`);
-      lines.push(`Form elements on page: ${result.totalFormElements ?? '?'}`);
-      lines.push(`Fields scanned: ${result.total}`);
-      lines.push(
-        `Result: ${result.filled} filled, ${result.failed} failed, ${result.skipped} skipped`,
-      );
-      if (result.durationMs != null) lines.push(`Duration: ${result.durationMs}ms`);
-      lines.push(`ML: ${result.mlAvailable ? 'yes' : 'no'}`);
-    }
-    lines.push('');
-
-    // Per-field details grouped by status
-    const groups: [string, FillLog[]][] = [
-      ['FILLED', logs.filter((l) => l.status === 'filled')],
-      ['FAILED', logs.filter((l) => l.status === 'failed')],
-      ['SKIPPED', logs.filter((l) => l.status === 'skipped')],
-    ];
-
-    for (const [groupLabel, groupLogs] of groups) {
-      if (groupLogs.length === 0) continue;
-      lines.push(`--- ${groupLabel} (${groupLogs.length}) ---`);
-      for (const l of groupLogs) {
-        lines.push(`  ${l.field}`);
-        lines.push(
-          `    widget: ${l.widgetType ?? '?'}  |  category: ${l.category ?? 'none'}  |  by: ${l.source ?? '?'}${l.confidence != null ? ` (${Math.round(l.confidence * 100)}%)` : ''}`,
-        );
-        if (l.value) lines.push(`    value: ${l.value}`);
-        if (l.sectionHeading) lines.push(`    section: ${l.sectionHeading}`);
-        if (l.groupLabels && l.groupLabels.length > 0)
-          lines.push(`    options: [${l.groupLabels.join(', ')}]`);
-        if (l.elementHint) lines.push(`    element: ${l.elementHint}`);
-        if (l.attemptedValue) lines.push(`    attempted: ${l.attemptedValue}`);
-        if (l.failReason) lines.push(`    reason: ${l.failReason}`);
-        if (l.skipReason) lines.push(`    reason: ${l.skipReason}`);
-      }
-      lines.push('');
-    }
-
-    const text = lines.join('\n');
+    const text = formatDebugLog(result ?? null, logs, pageUrl ?? '');
     navigator.clipboard.writeText(text).then(
       () => {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
       },
-      () => {
-        // Clipboard API unavailable or denied — ignore silently
-      },
+      () => {},
     );
   }, [logs, result, pageUrl]);
 
@@ -608,201 +520,38 @@ export function FillBar({
                 {expanded ? 'Hide Log' : 'View Log'}
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => {
-                setShowChangelogModal(true);
-                if (showChangelogBanner) dismissChangelogBanner();
-              }}
-              className={cn(
-                'text-[10px] uppercase tracking-widest font-medium leading-none transition-colors cursor-pointer',
-                showChangelogBanner
-                  ? 'text-green-600 animate-pulse'
-                  : 'text-foreground/50 hover:text-foreground/70',
-              )}
-            >
+            <span className="text-[10px] uppercase tracking-widest font-medium text-foreground/30 leading-none">
               v{chrome.runtime.getManifest().version}
-              {showChangelogBanner ? ' — new' : ''}
-            </button>
+            </span>
           </div>
-          <div className="relative" ref={menuRef}>
-            <button
-              type="button"
-              onClick={() => setShowMenu(!showMenu)}
-              className="text-[10px] uppercase tracking-widest font-medium text-foreground/50 hover:text-foreground/70 transition-colors cursor-pointer"
-            >
-              Options
-            </button>
-            <AnimatePresence>
-              {showMenu && (
-                <motion.div
-                  initial={{ opacity: 0, y: 4, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 4, scale: 0.95 }}
-                  transition={{ duration: 0.12 }}
-                  role="menu"
-                  className="absolute bottom-full right-0 mb-2 bg-popover border border-border rounded-lg shadow-md py-1 min-w-[160px] z-30"
-                >
-                  <MenuItem icon={Download} label="Export profile" onClick={handleExport} />
-                  <MenuItem icon={Upload} label="Import profile" onClick={handleImportClick} />
-                  <MenuItem icon={FileText} label="Changelog" onClick={handleChangelog} />
-                  <MenuItem icon={Star} label="Rate this extension" onClick={handleRate} />
-                  <MenuItem
-                    icon={Trash2}
-                    label="Delete all data"
-                    onClick={handleDeleteAll}
-                    destructive
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
+          <div className="flex items-center gap-0.5">
+            <IconButton label="Rate this extension" onClick={handleRate} icon={Star} />
+            <IconButton
+              label="Changelog"
+              onClick={handleChangelog}
+              icon={FileText}
+              highlight={showChangelogBanner}
+            />
+            <IconButton
+              label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+              onClick={toggleTheme}
+              icon={theme === 'light' ? Moon : Sun}
+            />
+            <IconButton
+              label="Settings"
+              onClick={() => setShowSettings(true)}
+              icon={SettingsIcon}
+            />
           </div>
         </div>
       </div>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".json"
-        onChange={handleFileChange}
-        className="hidden"
+      <SettingsModal
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
+        onClearAnswerBank={onClearAnswerBank}
+        onDeleteAllData={handleDeleteAll}
       />
-
-      {/* Import feedback */}
-      <AnimatePresence>
-        {importError && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.15 }}
-            className="overflow-hidden px-5"
-          >
-            <div className="flex items-center justify-between gap-2 p-2 rounded-md bg-destructive/10 text-destructive text-[11px]">
-              <span>{importError}</span>
-              <button
-                type="button"
-                onClick={() => setImportError(null)}
-                className="shrink-0 hover:opacity-70 cursor-pointer"
-              >
-                <X size={12} />
-              </button>
-            </div>
-          </motion.div>
-        )}
-        {importSuccess && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.15 }}
-            className="overflow-hidden px-5"
-          >
-            <div className="flex items-center gap-2 p-2 rounded-md bg-green-600/10 text-green-600 text-[11px]">
-              <Check size={12} />
-              <span>Profile imported successfully</span>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Delete confirmation */}
-      <AnimatePresence>
-        {pendingFile && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-            onClick={() => setPendingFile(null)}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 8 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 8 }}
-              transition={{ duration: 0.15 }}
-              className="bg-popover border border-border rounded-lg p-5 mx-4 w-full max-w-[320px] shadow-md"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-start gap-3 mb-5">
-                <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 shrink-0">
-                  <Upload size={16} className="text-primary" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-medium text-foreground">Import profile</h3>
-                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    This will replace the current preset's profile with the imported data.
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 justify-end">
-                <button
-                  type="button"
-                  onClick={() => setPendingFile(null)}
-                  className="h-8 px-3 rounded-lg text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={confirmImport}
-                  className="h-8 px-3 rounded-lg text-[12px] font-medium bg-primary text-primary-foreground hover:opacity-90 active:scale-[0.97] transition-all cursor-pointer"
-                >
-                  Import
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-        {showDeleteConfirm && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-            onClick={() => setShowDeleteConfirm(false)}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 8 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 8 }}
-              transition={{ duration: 0.15 }}
-              className="bg-popover border border-border rounded-lg p-5 mx-4 w-full max-w-[320px] shadow-md"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-start gap-3 mb-5">
-                <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-destructive/10 shrink-0">
-                  <Trash2 size={16} className="text-destructive" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-medium text-foreground">Delete all data</h3>
-                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    Permanently delete all profiles, presets, files, and settings. Cannot be undone.
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 justify-end">
-                <button
-                  type="button"
-                  onClick={() => setShowDeleteConfirm(false)}
-                  className="h-8 px-3 rounded-lg text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={confirmDeleteAll}
-                  className="h-8 px-3 rounded-lg text-[12px] font-medium bg-destructive text-white hover:opacity-90 active:scale-[0.97] transition-all cursor-pointer"
-                >
-                  Delete everything
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Changelog modal */}
       <AnimatePresence>
@@ -867,29 +616,31 @@ export function FillBar({
   );
 }
 
-function MenuItem({
+function IconButton({
   icon: Icon,
   label,
   onClick,
-  destructive,
+  highlight,
 }: {
   icon: React.ElementType;
   label: string;
   onClick: () => void;
-  destructive?: boolean;
+  highlight?: boolean;
 }) {
   return (
     <button
       type="button"
+      title={label}
+      aria-label={label}
       onClick={onClick}
       className={cn(
-        'flex items-center gap-2 w-full px-3 py-1.5 text-[11px] transition-colors cursor-pointer',
-        destructive
-          ? 'text-muted-foreground hover:text-destructive hover:bg-destructive/10'
+        'flex items-center justify-center w-7 h-7 rounded-md transition-colors cursor-pointer',
+        highlight
+          ? 'text-green-600 hover:bg-green-600/10'
           : 'text-muted-foreground hover:text-foreground hover:bg-accent',
       )}
     >
-      <Icon size={12} /> {label}
+      <Icon size={13} />
     </button>
   );
 }

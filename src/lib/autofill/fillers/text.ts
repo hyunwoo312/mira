@@ -2,11 +2,25 @@ import type { FillOutcome } from '../types';
 import { bridgeSetText } from '../bridge';
 import { sleep } from './shared';
 
-export async function fillText(el: HTMLElement, value: string): Promise<FillOutcome> {
+export async function fillText(
+  el: HTMLElement,
+  value: string,
+  category?: string,
+): Promise<FillOutcome> {
   if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) {
     return { status: 'skipped', reason: 'wrong-type' };
   }
   if (el.value.trim()) return { status: 'skipped', reason: 'already-filled' };
+
+  // Categories whose value is always a hardcoded Yes/No (profile has no
+  // corresponding freeform field). A plain-text input classified into one
+  // of these is almost always asking for richer info than Yes/No — stuffing
+  // the boolean in is actively misleading (e.g. ML tagging "Are you in the
+  // SF Bay Area? Where?" as locatedInUS and filling "Yes").
+  const YES_NO_ONLY_INTO_TEXT_SKIP = new Set(['referral', 'locatedInUS']);
+  if (category && YES_NO_ONLY_INTO_TEXT_SKIP.has(category) && /^(yes|no)$/i.test(value.trim())) {
+    return { status: 'skipped', reason: 'no-value' };
+  }
 
   el.scrollIntoView({ block: 'nearest', behavior: 'instant' });
   await bridgeSetText(el, value);

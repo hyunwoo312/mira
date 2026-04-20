@@ -1,5 +1,4 @@
 import { useFormContext, Controller } from 'react-hook-form';
-import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectTrigger,
@@ -59,17 +58,8 @@ function IndexSelect({ name, options }: { name: keyof Profile; options: FieldOpt
 }
 
 export function EeoSection() {
-  const { control } = useFormContext<Profile>();
-
   return (
     <div className="flex flex-col">
-      <LedgerRow label="Skip When Optional">
-        <Controller
-          name="skipEeo"
-          control={control}
-          render={({ field }) => <Switch checked={field.value} onCheckedChange={field.onChange} />}
-        />
-      </LedgerRow>
       <LedgerRow label="Gender">
         <IndexSelect name="gender" options={GENDER_OPTIONS} />
       </LedgerRow>

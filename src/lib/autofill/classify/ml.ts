@@ -45,6 +45,11 @@ const LOW_THRESHOLD_CATEGORIES = new Set([
   'workAuth',
   'sponsorship',
   'canWorkFromLocation',
+  // Profile-data categories where ML confidence can hover around 0.5 on
+  // borderline phrasings like "Where have you most recently worked?" —
+  // these are strong lexical signals and low-threshold is safe because
+  // the heuristic pattern catches the obvious cases first.
+  'company',
 ]);
 
 export interface MLResult {

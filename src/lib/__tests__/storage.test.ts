@@ -6,7 +6,6 @@ import {
   addPreset,
   deletePreset,
   renamePreset,
-  loadProfile,
 } from '../storage';
 import { DEFAULT_PROFILE } from '../schema';
 import { clearChromeStore, chromeMock } from '@/test/chrome-mock';
@@ -153,13 +152,6 @@ describe('storage', () => {
       };
       const updated = renamePreset(store, 'a', 'A very long preset name that exceeds the max');
       expect(updated.presets[0]!.name.length).toBeLessThanOrEqual(20);
-    });
-  });
-
-  describe('legacy loadProfile', () => {
-    it('returns active profile from preset store', async () => {
-      const profile = await loadProfile();
-      expect(profile).toEqual(DEFAULT_PROFILE);
     });
   });
 });

@@ -26,9 +26,13 @@ try {
     if (Buffer.compare(rootData, assetData) === 0) {
       fs.unlinkSync(assetPath);
       removed++;
-      console.log(`  Removed duplicate: assets/${file} (${(assetData.length / 1024 / 1024).toFixed(0)}MB)`);
+      console.log(
+        `  Removed duplicate: assets/${file} (${(assetData.length / 1024 / 1024).toFixed(0)}MB)`,
+      );
     } else {
-      console.log(`  Kept: assets/${file} (${(assetData.length / 1024 / 1024).toFixed(0)}MB, different variant)`);
+      console.log(
+        `  Kept: assets/${file} (${(assetData.length / 1024 / 1024).toFixed(0)}MB, different variant)`,
+      );
     }
   }
 

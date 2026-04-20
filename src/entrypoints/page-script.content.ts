@@ -244,13 +244,22 @@ export default defineContentScript({
     }
 
     window.addEventListener('message', (event) => {
+      // Same-window + same-origin gate. Cross-origin iframes cannot forge
+      // protocol messages here.
       if (event.source !== window) return;
+      if (event.origin !== window.location.origin) return;
       const msg = event.data;
       if (!msg || typeof msg !== 'object' || !msg[PROTOCOL] || !msg.id || !msg.action) return;
 
+      // miraId must match the tag format we emit; reject anything else so a
+      // forged message can't shove an arbitrary attribute-selector string
+      // into querySelector.
+      if (msg.miraId != null && typeof msg.miraId !== 'string') return;
+      if (msg.miraId && !/^mira-[a-z0-9]+$/.test(msg.miraId)) return;
+
       const el = msg.miraId ? findElement(msg.miraId) : null;
       const reply = (data: Record<string, unknown>) =>
-        window.postMessage({ [PROTOCOL]: true, id: msg.id, ...data }, '*');
+        window.postMessage({ [PROTOCOL]: true, id: msg.id, ...data }, window.location.origin);
 
       try {
         switch (msg.action) {
@@ -309,6 +318,27 @@ export default defineContentScript({
               return;
             }
             clickElement(el);
+            reply({ success: true });
+            return;
+          }
+
+          case 'workdayMonikerSearch': {
+            if (!el || !(el instanceof HTMLInputElement)) {
+              reply({ success: false });
+              return;
+            }
+            // Workday's moniker search is wired to React's onKeyDown prop with
+            // special-case handling for Tab: "commit query + search + auto-select".
+            // Native input/key events never reach this branch, which is why
+            // plain value-sets leave the listbox stuck on "No Items.".
+            const propsKey = getReactPropsKey(el);
+            const onKeyDown = propsKey ? (el as any)[propsKey]?.onKeyDown : null;
+            if (typeof onKeyDown !== 'function') {
+              reply({ success: false });
+              return;
+            }
+            el.focus();
+            onKeyDown({ key: 'Tab', target: { value: String(msg.value ?? '') } });
             reply({ success: true });
             return;
           }
@@ -428,6 +458,6 @@ export default defineContentScript({
     });
 
     // Signal ready
-    window.postMessage({ [PROTOCOL]: true, action: 'ready' }, '*');
+    window.postMessage({ [PROTOCOL]: true, action: 'ready' }, window.location.origin);
   },
 });

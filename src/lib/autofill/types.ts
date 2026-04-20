@@ -21,7 +21,9 @@ export type WidgetType =
   | 'workday-dropdown'
   | 'workday-multiselect'
   | 'workday-date'
-  | 'workday-virtualized-checkbox';
+  | 'workday-virtualized-checkbox'
+  | 'icims-typeahead'
+  | 'icims-date';
 
 export type SkipReason = 'already-filled' | 'no-value' | 'file-on-text' | 'wrong-type';
 export type FailReason = 'no-option-match' | 'no-dropdown' | 'select-failed' | 'element-error';
@@ -31,7 +33,7 @@ export type FillOutcome =
   | { status: 'skipped'; reason: SkipReason }
   | { status: 'failed'; reason: FailReason; discoveredOptions?: string[] };
 
-export type ATSName = 'workday' | 'greenhouse' | 'lever' | 'ashby' | 'generic';
+export type ATSName = 'workday' | 'greenhouse' | 'lever' | 'ashby' | 'icims' | 'generic';
 
 export interface ScanResult {
   label: string;
@@ -87,7 +89,9 @@ export interface FillableField {
     | 'workday-dropdown'
     | 'workday-multiselect'
     | 'workday-date'
-    | 'workday-virtualized-checkbox';
+    | 'workday-virtualized-checkbox'
+    | 'icims-typeahead'
+    | 'icims-date';
 }
 
 export interface FieldResult {

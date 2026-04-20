@@ -116,6 +116,19 @@ export function buildStyles(): string {
 
     /* ── Log panel ── */
     .ov-log-panel { border-top: 1px solid var(--border); background: var(--bg-alt); overflow: hidden; }
+    .ov-log-panel-head {
+      display: flex; justify-content: flex-end;
+      padding: 6px 10px 0;
+    }
+    .ov-copy-btn {
+      all: unset; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 8px; border-radius: 6px;
+      font-size: 10px; color: var(--muted);
+      transition: color 120ms, background 120ms;
+    }
+    .ov-copy-btn:hover { color: var(--fg); background: rgba(0,0,0,0.04); }
+    .mira-widget.dark .ov-copy-btn:hover { background: rgba(255,255,255,0.05); }
     .ov-log-scroll { max-height: 280px; overflow-y: auto; padding: 6px 14px 14px; }
     .ov-log-scroll::-webkit-scrollbar { width: 4px; }
     .ov-log-scroll::-webkit-scrollbar-track { background: transparent; }

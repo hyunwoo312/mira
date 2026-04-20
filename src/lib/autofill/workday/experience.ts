@@ -1,4 +1,4 @@
-import type { FillableField, FillOutcome, InputType, FieldResult } from '../types';
+import type { FillableField, FillOutcome, InputType, FieldResult, WidgetType } from '../types';
 import type { Profile } from '../../schema';
 import { bridgeSetText } from '../bridge';
 import {
@@ -7,7 +7,28 @@ import {
   detectWorkdayWidget,
   type WorkdayWidgetHint,
 } from './utils';
-import { fillWorkdayDropdown, fillWorkdayDate } from '../fillers/workday';
+import { fillWorkdayDropdown, fillWorkdayDate, fillWorkdayMultiselect } from '../fillers/workday';
+import { elementHint } from '../pipeline';
+
+function staticMapLogMeta(
+  field: FillableField,
+): Pick<FieldResult, 'widgetType' | 'category' | 'elementHint'> {
+  const widgetType: WidgetType =
+    field.atsHint === 'workday-dropdown'
+      ? 'workday-dropdown'
+      : field.atsHint === 'workday-multiselect'
+        ? 'workday-multiselect'
+        : field.atsHint === 'workday-date'
+          ? 'workday-date'
+          : field.atsHint === 'workday-virtualized-checkbox'
+            ? 'workday-virtualized-checkbox'
+            : 'plain-text';
+  return {
+    widgetType,
+    category: field.category ?? undefined,
+    elementHint: elementHint(field.element),
+  };
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -55,7 +76,13 @@ export async function prepareAndFillWorkdayExperience(
       try {
         const outcome = await fillSingleField(field, value);
         if (outcome.status === 'filled') {
-          logs.push({ field: field.label, value, status: 'filled', source: 'static-map' });
+          logs.push({
+            field: field.label,
+            value,
+            status: 'filled',
+            source: 'static-map',
+            ...staticMapLogMeta(field),
+          });
           const container = field.element.closest('[data-automation-id^="formField-"]');
           const aid = container?.getAttribute('data-automation-id');
           if (aid) filledAutomationIds.add(aid);
@@ -89,7 +116,13 @@ export async function prepareAndFillWorkdayExperience(
       try {
         const outcome = await fillSingleField(field, value);
         if (outcome.status === 'filled') {
-          logs.push({ field: field.label, value, status: 'filled', source: 'static-map' });
+          logs.push({
+            field: field.label,
+            value,
+            status: 'filled',
+            source: 'static-map',
+            ...staticMapLogMeta(field),
+          });
           const container = field.element.closest('[data-automation-id^="formField-"]');
           const aid = container?.getAttribute('data-automation-id');
           if (aid) filledAutomationIds.add(aid);
@@ -120,7 +153,15 @@ export async function prepareAndFillWorkdayExperience(
     if (lastInput && !lastInput.value) {
       try {
         await bridgeSetText(lastInput, url);
-        logs.push({ field: 'Website URL', value: url, status: 'filled', source: 'static-map' });
+        logs.push({
+          field: 'Website URL',
+          value: url,
+          status: 'filled',
+          source: 'static-map',
+          widgetType: 'plain-text',
+          category: 'websiteUrl',
+          elementHint: elementHint(lastInput),
+        });
       } catch {
         /* Continue */
       }
@@ -308,6 +349,8 @@ async function fillSingleField(field: FillableField, value: string): Promise<Fil
   if (hint === 'workday-dropdown')
     return fillWorkdayDropdown(field.element, value, field.category!);
   if (hint === 'workday-date') return fillWorkdayDate(field.element, value);
+  if (hint === 'workday-multiselect')
+    return fillWorkdayMultiselect(field.element, value, field.category ?? undefined, field.label);
 
   if (field.type === 'checkbox') {
     const checkbox = field.element as HTMLInputElement;

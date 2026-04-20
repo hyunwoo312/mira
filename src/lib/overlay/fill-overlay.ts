@@ -7,15 +7,20 @@ import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { buildStyles } from './overlay-styles';
 import { OverlayApp, type OverlayState } from './overlay-component';
+import { THEME_STORAGE_KEY as THEME_KEY } from '@/lib/theme';
 
-const THEME_KEY = 'mira_theme';
-const DISMISS_MS = 8000;
+const SETTINGS_KEY = 'mira_settings';
+const DEFAULT_DISMISS_MS = 8000;
 
 export interface FillResult {
   filled: number;
   failed: number;
   skipped: number;
   total: number;
+  ats?: string;
+  durationMs?: number;
+  mlAvailable?: boolean;
+  totalFormElements?: number;
 }
 
 export interface LogItem {
@@ -27,6 +32,11 @@ export interface LogItem {
   skipReason?: string;
   failReason?: string;
   attemptedValue?: string;
+  widgetType?: string;
+  category?: string;
+  sectionHeading?: string;
+  groupLabels?: string[];
+  elementHint?: string;
 }
 
 export type Phase = 'ml-loading' | 'filling';
@@ -41,6 +51,7 @@ export class FillOverlay {
     phase: null,
     result: null,
     logs: [],
+    pageUrl: '',
     timerActive: false,
     timerPaused: false,
     isDark: false,
@@ -99,6 +110,7 @@ export class FillOverlay {
       phase,
       result: null,
       logs: [],
+      pageUrl: window.location.href,
       timerActive: false,
       timerPaused: false,
       isDark: this.isDark,
@@ -117,12 +129,23 @@ export class FillOverlay {
       phase: null,
       result,
       logs: logs ?? [],
+      pageUrl: window.location.href,
       timerActive: true,
       timerPaused: false,
       isDark: this.isDark,
     };
     this.render();
-    this.dismissTimer = setTimeout(() => this.dismiss(), DISMISS_MS);
+    chrome.storage.local.get(SETTINGS_KEY).then((r) => {
+      const settings = (r[SETTINGS_KEY] as { overlayDismissMs?: number | null }) ?? null;
+      const dismissMs =
+        settings && 'overlayDismissMs' in settings ? settings.overlayDismissMs : DEFAULT_DISMISS_MS;
+      if (dismissMs == null) {
+        this.state = { ...this.state, timerActive: false };
+        this.render();
+        return;
+      }
+      this.dismissTimer = setTimeout(() => this.dismiss(), dismissMs);
+    });
   }
 
   dismiss(): void {
@@ -152,7 +175,7 @@ export class FillOverlay {
         },
         onResumeDismiss: () => {
           if (!this.state.timerActive || this.state.phase) return;
-          const remaining = Math.max(1000, DISMISS_MS - this.timerElapsed);
+          const remaining = Math.max(1000, DEFAULT_DISMISS_MS - this.timerElapsed);
           this.timerStartedAt = Date.now();
           this.state = { ...this.state, timerPaused: false };
           this.render();

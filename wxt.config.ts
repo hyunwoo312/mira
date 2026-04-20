@@ -10,7 +10,7 @@ export default defineConfig({
   manifest: {
     name: 'Mira',
     description:
-      'Auto-fill job applications on Ashby, Greenhouse, Lever, and Workday with on-device ML.',
+      'Auto-fill job applications on Ashby, Greenhouse, iCIMS, Lever, and Workday with on-device ML.',
     permissions: [
       'activeTab',
       'tabs',
@@ -24,6 +24,10 @@ export default defineConfig({
       'alarms',
     ],
     commands: {
+      _execute_action: {
+        suggested_key: { default: 'Ctrl+Shift+E', mac: 'Command+Shift+E' },
+        description: 'Open Mira side panel',
+      },
       'trigger-fill': {
         suggested_key: { default: 'Ctrl+Shift+F', mac: 'Command+Shift+F' },
         description: 'Auto-fill with active profile',

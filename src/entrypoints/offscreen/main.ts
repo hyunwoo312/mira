@@ -9,8 +9,18 @@ import type { OffscreenRequest, FieldContext, Classification } from '@/lib/ml/ty
 
 const classifier = new FieldClassifier();
 
+function isFieldArray(v: unknown): v is FieldContext[] {
+  return Array.isArray(v) && v.every((f) => f && typeof f === 'object');
+}
+
+function isStringArray(v: unknown): v is string[] {
+  return Array.isArray(v) && v.every((s) => typeof s === 'string');
+}
+
 chrome.runtime.onMessage.addListener(
-  (message: OffscreenRequest, _sender, sendResponse: (response: unknown) => void) => {
+  (message: OffscreenRequest, sender, sendResponse: (response: unknown) => void) => {
+    // Only accept requests from this extension's own scripts.
+    if (sender.id && sender.id !== chrome.runtime.id) return false;
     switch (message.type) {
       case 'OFFSCREEN_LOAD_MODEL':
         classifier
@@ -22,8 +32,16 @@ chrome.runtime.onMessage.addListener(
         return true;
 
       case 'OFFSCREEN_CLASSIFY':
+        if (!isFieldArray(message.fields)) {
+          sendResponse({
+            requestId: message.requestId,
+            classifications: [],
+            error: 'invalid fields',
+          });
+          return true;
+        }
         classifier
-          .classify(message.fields as FieldContext[])
+          .classify(message.fields)
           .then((classifications: Classification[]) =>
             sendResponse({ requestId: message.requestId, classifications }),
           )
@@ -33,8 +51,12 @@ chrome.runtime.onMessage.addListener(
         return true;
 
       case 'OFFSCREEN_MATCH_ANSWERS':
+        if (!isStringArray(message.fieldLabels) || !isStringArray(message.questions)) {
+          sendResponse({ requestId: message.requestId, matches: [], error: 'invalid payload' });
+          return true;
+        }
         classifier
-          .matchAnswers(message.fieldLabels as string[], message.questions as string[])
+          .matchAnswers(message.fieldLabels, message.questions)
           .then((matches) => sendResponse({ requestId: message.requestId, matches }))
           .catch((err: Error) =>
             sendResponse({ requestId: message.requestId, matches: [], error: err.message }),
@@ -43,12 +65,17 @@ chrome.runtime.onMessage.addListener(
 
       case 'OFFSCREEN_MATCH_OPTION':
         // Legacy embeddings-based option matching — now routed through scoreOptions
+        if (typeof message.value !== 'string' || !isStringArray(message.options)) {
+          sendResponse({
+            requestId: message.requestId,
+            bestIndex: -1,
+            similarity: 0,
+            error: 'invalid payload',
+          });
+          return true;
+        }
         classifier
-          .scoreOptions(
-            message.value as string,
-            message.value as string,
-            message.options as string[],
-          )
+          .scoreOptions(message.value, message.value, message.options)
           .then((result) =>
             sendResponse({
               requestId: message.requestId,
@@ -67,12 +94,21 @@ chrome.runtime.onMessage.addListener(
         return true;
 
       case 'OFFSCREEN_SCORE_OPTIONS':
+        if (
+          typeof message.question !== 'string' ||
+          typeof message.profileValue !== 'string' ||
+          !isStringArray(message.options)
+        ) {
+          sendResponse({
+            requestId: message.requestId,
+            bestIndex: -1,
+            score: 0,
+            error: 'invalid payload',
+          });
+          return true;
+        }
         classifier
-          .scoreOptions(
-            message.question as string,
-            message.profileValue as string,
-            message.options as string[],
-          )
+          .scoreOptions(message.question, message.profileValue, message.options)
           .then((result) => sendResponse({ requestId: message.requestId, ...result }))
           .catch((err: Error) =>
             sendResponse({

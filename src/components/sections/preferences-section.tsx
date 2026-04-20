@@ -125,6 +125,7 @@ export function PreferencesSection() {
         <IndexSelect name="noticePeriod" options={NOTICE_PERIOD_OPTIONS} />
       </LedgerRow>
       <LedgerToggle name="willingToRelocate" label="Willing to Relocate" />
+      <LedgerToggle name="needsRelocationAssistance" label="Needs Relocation Assistance" />
       <LedgerToggle name="willingToTravel" label="Willing to Travel" />
       <LedgerRow label="Target Salary">
         <div className="flex items-center gap-2 text-sm">

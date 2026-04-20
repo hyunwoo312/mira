@@ -100,12 +100,6 @@ export const WORK_ARRANGEMENT_OPTIONS = defineOptions(['Remote', 'Hybrid', 'On-s
 
 // ── Lookup Helpers ──
 
-/** Get the display label for a field option by index. Returns '' if index is out of range or -1. */
-export function getLabel(options: FieldOption[], index: number): string {
-  if (index < 0 || index >= options.length) return '';
-  return options[index]!.label;
-}
-
 /** Get the fill value for a field option by index. Returns '' if invalid. */
 export function getFillValue(options: FieldOption[], index: number): string {
   if (index < 0 || index >= options.length) return '';

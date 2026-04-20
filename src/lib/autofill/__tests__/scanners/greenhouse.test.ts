@@ -92,5 +92,57 @@ describe('greenhouse scanner', () => {
       expect(radioField).toBeDefined();
       expect(radioField!.groupLabels?.length).toBe(2);
     });
+
+    it('should classify indexed work-experience fields by ID', () => {
+      // Embedded Greenhouse forms label these as "Title", "Start date month*",
+      // etc. without a section heading. The ID suffix `-0` is the reliable signal.
+      document.body.innerHTML = `
+        <div id="app_body">
+          <label for="title-0">Title</label>
+          <input type="text" id="title-0" />
+          <label for="company-name-0">Company name</label>
+          <input type="text" id="company-name-0" />
+          <label for="start-date-month-0">Start date month*</label>
+          <input type="text" id="start-date-month-0" />
+          <label for="start-date-year-0">Start date year</label>
+          <input type="text" id="start-date-year-0" />
+          <label for="end-date-month-0">End date month*</label>
+          <input type="text" id="end-date-month-0" />
+          <label for="end-date-year-0">End date year</label>
+          <input type="text" id="end-date-year-0" />
+          <label for="school--0">School</label>
+          <input type="text" id="school--0" />
+          <label for="degree--0">Degree</label>
+          <input type="text" id="degree--0" />
+          <label for="discipline--0">Discipline</label>
+          <input type="text" id="discipline--0" />
+        </div>
+      `;
+      const byId = new Map(greenhouse.scan().map((r) => [r.element.id, r]));
+      expect(byId.get('title-0')!.category).toBe('jobTitle');
+      expect(byId.get('company-name-0')!.category).toBe('company');
+      expect(byId.get('start-date-month-0')!.category).toBe('workStartMonth');
+      expect(byId.get('start-date-year-0')!.category).toBe('workStartYear');
+      expect(byId.get('end-date-month-0')!.category).toBe('workEndMonth');
+      expect(byId.get('end-date-year-0')!.category).toBe('workEndYear');
+      expect(byId.get('school--0')!.category).toBe('school');
+      expect(byId.get('degree--0')!.category).toBe('degree');
+      expect(byId.get('discipline--0')!.category).toBe('fieldOfStudy');
+      for (const r of byId.values()) expect(r.classifiedBy).toBe('heuristic');
+    });
+
+    it('should classify current-role checkbox by ID (with or without _n suffix)', () => {
+      document.body.innerHTML = `
+        <div id="app_body">
+          <label for="current-role-0">Current role</label>
+          <input type="checkbox" id="current-role-0" />
+          <label for="current-role-1_1">I currently work here</label>
+          <input type="checkbox" id="current-role-1_1" />
+        </div>
+      `;
+      const byId = new Map(greenhouse.scan().map((r) => [r.element.id, r]));
+      expect(byId.get('current-role-0')!.category).toBe('currentRole');
+      expect(byId.get('current-role-1_1')!.category).toBe('currentRole');
+    });
   });
 });

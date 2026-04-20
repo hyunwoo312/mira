@@ -72,7 +72,10 @@ function createTextarea(): HTMLTextAreaElement {
 function createSelect(options: string[], values?: string[]): HTMLSelectElement {
   const el = document.createElement('select');
   for (let i = 0; i < options.length; i++) {
-    el.appendChild(new Option(options[i]!, values?.[i] ?? options[i]!));
+    const opt = document.createElement('option');
+    opt.textContent = options[i]!;
+    opt.value = values?.[i] ?? options[i]!;
+    el.appendChild(opt);
   }
   document.body.appendChild(el);
   return el;
@@ -217,7 +220,7 @@ describe('fillSelect', () => {
 
     const result = await fillSelect(el, 'Elephant');
 
-    expect(result).toEqual({ status: 'failed', reason: 'no-option-match' });
+    expect(result).toMatchObject({ status: 'failed', reason: 'no-option-match' });
   });
 
   it('should return skipped for non-select elements', async () => {
@@ -250,6 +253,49 @@ describe('fillSelect', () => {
 
     expect(result.status).toBe('filled');
     expect(el.value).toBe('no_sponsor');
+  });
+
+  // exportControl's profile value ("U.S. person") inverts semantically on Yes/No
+  // OFAC questions — Telnyx observed fill was "Yes" which would claim the
+  // candidate IS a sanctioned-country citizen. The guard must skip instead.
+  describe('exportControl Yes/No guard', () => {
+    it('should skip when category=exportControl and options are Yes/No only', async () => {
+      const el = createSelect(['-- Select --', 'Yes', 'No'], ['', 'yes', 'no']);
+      const result = await fillSelect(el, 'U.S. person', 'exportControl');
+      expect(result).toEqual({ status: 'skipped', reason: 'no-value' });
+      expect(el.selectedIndex).toBe(0);
+    });
+
+    it('should skip when options are Yes/No with a decline variant', async () => {
+      const el = createSelect(
+        ['-- Select --', 'Yes', 'No', 'Prefer not to say'],
+        ['', 'yes', 'no', 'skip'],
+      );
+      const result = await fillSelect(el, 'U.S. person', 'exportControl');
+      expect(result).toEqual({ status: 'skipped', reason: 'no-value' });
+    });
+
+    it('should still fill when the option set is the multi-option OFAC form', async () => {
+      const el = createSelect(
+        [
+          '-- Select --',
+          'I am a U.S. person',
+          'I am a citizen of Cuba, Iran, North Korea, or Syria AND I am NOT a U.S. person',
+          'None of the above',
+        ],
+        ['', 'us', 'sanctioned', 'other'],
+      );
+      const result = await fillSelect(el, 'I am a U.S. person', 'exportControl');
+      expect(result.status).toBe('filled');
+      expect(el.value).toBe('us');
+    });
+
+    it('should not affect fills for other categories with Yes/No options', async () => {
+      const el = createSelect(['-- Select --', 'Yes', 'No'], ['', 'yes', 'no']);
+      const result = await fillSelect(el, 'Yes', 'workAuth');
+      expect(result.status).toBe('filled');
+      expect(el.value).toBe('yes');
+    });
   });
 });
 
