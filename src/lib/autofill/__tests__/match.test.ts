@@ -481,4 +481,60 @@ describe('fuzzyMatchOption', () => {
       expect(r.index).toBeLessThan(0);
     });
   });
+
+  // ── 11. exportControl: granular ITAR forms (5-option lists) ─────────
+  //
+  // Chaos Industries Greenhouse + Northwood Ashby both shipped granular
+  // 5-option ITAR/exportControl forms. The fillMap emits "U.S. person" /
+  // "Foreign person", which never appears literally in those option lists.
+  // Without category-scoped aliasing, the matcher fuzzy-fell-through to a
+  // suspect option (silent wrong-fill) or returned -1 (loud
+  // no-option-match). The exportControl alias entry expands "U.S. person"
+  // into citizen/permanent-resident/refugee/asylee synonyms so the alias
+  // contains-match step picks the right option.
+  describe('exportControl alias expansion', () => {
+    const FIVE_CHOICE = [
+      'A United States citizen or national',
+      'A person lawfully admitted for permanent residence',
+      'A person admitted as a refugee under 8 U.S.C. 1157',
+      'A person admitted as an asylee under 8 U.S.C. 1158',
+      'None of the above',
+    ];
+
+    it('matches "U.S. person" to the citizen option', () => {
+      const r = fuzzyMatchOption(FIVE_CHOICE, 'U.S. person', false, 'exportControl');
+      // Should land on a U.S.-person-bearing option (citizen / LPR / refugee /
+      // asylee). Index 0 is the canonical pick; any of 0–3 are semantically
+      // correct. Index 4 ("None of the above") would be wrong.
+      expect(r.index).toBeGreaterThanOrEqual(0);
+      expect(r.index).toBeLessThan(4);
+    });
+
+    it('matches "Foreign person" to "None of the above"', () => {
+      const r = fuzzyMatchOption(FIVE_CHOICE, 'Foreign person', false, 'exportControl');
+      expect(r.index).toBe(4);
+    });
+
+    it('still matches "U.S. person" against literal "U.S. person" / "Foreign person" radio', () => {
+      // The Hadrian Ashby shape — already worked before the fix, must keep
+      // working after.
+      const r = fuzzyMatchOption(
+        ['U.S. person', 'Foreign person'],
+        'U.S. person',
+        false,
+        'exportControl',
+      );
+      expect(r.index).toBe(0);
+    });
+
+    it('matches "Foreign person" against the binary radio', () => {
+      const r = fuzzyMatchOption(
+        ['U.S. person', 'Foreign person'],
+        'Foreign person',
+        false,
+        'exportControl',
+      );
+      expect(r.index).toBe(1);
+    });
+  });
 });

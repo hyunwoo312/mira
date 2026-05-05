@@ -63,36 +63,6 @@ chrome.runtime.onMessage.addListener(
           );
         return true;
 
-      case 'OFFSCREEN_MATCH_OPTION':
-        // Legacy embeddings-based option matching — now routed through scoreOptions
-        if (typeof message.value !== 'string' || !isStringArray(message.options)) {
-          sendResponse({
-            requestId: message.requestId,
-            bestIndex: -1,
-            similarity: 0,
-            error: 'invalid payload',
-          });
-          return true;
-        }
-        classifier
-          .scoreOptions(message.value, message.value, message.options)
-          .then((result) =>
-            sendResponse({
-              requestId: message.requestId,
-              bestIndex: result.bestIndex,
-              similarity: result.score,
-            }),
-          )
-          .catch((err: Error) =>
-            sendResponse({
-              requestId: message.requestId,
-              bestIndex: -1,
-              similarity: 0,
-              error: err.message,
-            }),
-          );
-        return true;
-
       case 'OFFSCREEN_SCORE_OPTIONS':
         if (
           typeof message.question !== 'string' ||

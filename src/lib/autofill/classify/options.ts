@@ -1,4 +1,5 @@
 import aliasData from '@/data/aliases.json';
+import { COUNTRIES } from '@/lib/countries';
 
 type AliasMap = Record<string, Record<string, string[]>>;
 const aliases = aliasData as AliasMap;
@@ -89,14 +90,39 @@ interface OptionSignature {
   detect: (options: string[]) => boolean;
 }
 
+// ITAR/EAR "protected individual" option-set shape. ML routes inconsistently
+// (visaType / customQuestion); detecting the option content directly
+// guarantees exportControl + alias matching for citizen/LPR/refugee/asylee/none.
+const ITAR_GRANULAR_TOKENS: RegExp[] = [
+  /\bcitizen\b/i,
+  /\bpermanent\s+resident\b|\bgreen\s+card\b|\blawfully\s+admitted\b/i,
+  /\brefugee\b/i,
+  /\basylee\b|\basylum\b/i,
+  /\bnone\s+of\s+the\s+above\b|\bforeign\b/i,
+];
+
 const SIGNATURES: OptionSignature[] = [
+  {
+    category: 'exportControl',
+    detect: (opts) => {
+      if (opts.length < 4 || opts.length > 8) return false;
+      // Need ≥3 of the ITAR-token signatures present across the options
+      let hits = 0;
+      for (const re of ITAR_GRANULAR_TOKENS) {
+        if (opts.some((o) => re.test(o))) hits++;
+      }
+      return hits >= 3;
+    },
+  },
   {
     category: 'gender',
     detect: (opts) => countMatches(opts, GENDER_FORMS) >= 2 && opts.length <= 8,
   },
   {
     category: 'race',
-    detect: (opts) => countMatches(opts, RACE_FORMS) >= 3,
+    // Length cap prevents trivial substring hits on long unrelated lists
+    // (e.g. university dropdowns containing "Asian University of …").
+    detect: (opts) => opts.length <= 12 && countMatches(opts, RACE_FORMS) >= 3,
   },
   {
     category: 'veteranStatus',
@@ -170,4 +196,31 @@ export function classifyByOptions(options: string[]): string | null {
   }
 
   return null;
+}
+
+// Full ISO country list lower-cased once (aliases.countries only has ~8 entries
+// with notable variants — too sparse for "looks like a country list").
+const COUNTRY_NAME_SET = new Set(COUNTRIES.map((c) => c.toLowerCase()));
+
+/**
+ * Heuristic: do the options look like a short list of country names?
+ * Used by pipeline.ts to detect e.g. "Are you authorized to work in the
+ * country this role is listed in?" with options [United States, Singapore,
+ * No] — ML correctly classifies workAuth, but emitting "Yes" can't match a
+ * country option. We override the value to the user's country instead.
+ */
+export function looksLikeCountryList(options: string[]): boolean {
+  if (!options || options.length < 2 || options.length > 6) return false;
+  let hits = 0;
+  for (const opt of options) {
+    const norm = opt.toLowerCase().trim();
+    if (GENERIC_TERMS.has(norm)) continue;
+    if (COUNTRY_NAME_SET.has(norm)) {
+      hits += 1;
+      continue;
+    }
+    // Aliases for countries with notable variants (US/USA/UK/etc.)
+    if (COUNTRY_FORMS.has(norm)) hits += 1;
+  }
+  return hits >= 2;
 }

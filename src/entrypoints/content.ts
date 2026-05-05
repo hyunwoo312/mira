@@ -148,7 +148,7 @@ export default defineContentScript({
             fillMap as Record<string, string>,
             answerBank,
             fillController!.signal,
-            { mlDisabled: settings.mlDisabled === true },
+            { mlDisabled: settings.mlDisabled === true, profile: message.profile },
           );
 
           // Workday preLogs arrive after fillPage's own dedup, so re-dedup

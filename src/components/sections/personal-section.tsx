@@ -58,6 +58,11 @@ const US_STATES: [string, string][] = [
   ['WI', 'Wisconsin'],
   ['WY', 'Wyoming'],
   ['DC', 'District of Columbia'],
+  ['PR', 'Puerto Rico'],
+  ['VI', 'U.S. Virgin Islands'],
+  ['GU', 'Guam'],
+  ['AS', 'American Samoa'],
+  ['MP', 'Northern Mariana Islands'],
 ];
 
 function PersonalInput({

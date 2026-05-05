@@ -121,6 +121,9 @@ export function isLeverLocationFilled(): boolean {
 
 export const DROPDOWN_WAIT_MS = 300;
 export const DROPDOWN_WAIT_FILTERED_MS = 400;
+// Retry ceiling for slow-async react-selects whose options arrive past
+// the initial 400ms window. Only fires when first wait sees 0 options.
+export const REACT_SELECT_SLOW_RETRY_MS = 1500;
 export const LOCATION_API_WAIT_MS = 5000;
 export const LOCATION_API_RETRY_MS = 3000;
 export const PLACES_COLD_START_MS = 800;

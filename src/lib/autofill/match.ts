@@ -87,6 +87,7 @@ const CATEGORY_TO_ALIAS: Record<string, string> = {
   workAuth: 'yesNo',
   sponsorship: 'yesNo',
   relocate: 'yesNo',
+  relocationAssistance: 'yesNo',
   workedHereBefore: 'yesNo',
   flexwork: 'yesNo',
   isOver18: 'yesNo',
@@ -102,6 +103,9 @@ const CATEGORY_TO_ALIAS: Record<string, string> = {
   degree: 'degrees',
   fieldOfStudy: 'fieldOfStudy',
   startDate: 'noticePeriod',
+  // Granular ITAR option lists need alias expansion of "U.S. person" /
+  // "Foreign person" into citizen/LPR/refugee/asylee/none-of-the-above.
+  exportControl: 'exportControl',
 };
 
 function getAliasFormsScoped(value: string, fieldCategory?: string): string[] {

@@ -1,11 +1,19 @@
 import { useState, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, ExternalLink, Trash2, RotateCcw, Settings as SettingsIcon } from 'lucide-react';
+import {
+  X,
+  ExternalLink,
+  Trash2,
+  RotateCcw,
+  Sparkles,
+  Settings as SettingsIcon,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSettings } from '@/hooks/use-settings';
 import type { OverlayDismissMs, Settings } from '@/lib/settings';
 import { clearApplications } from '@/lib/application-store';
+import { openOnboardingTab } from '@/lib/onboarding';
 
 const DISMISS_OPTIONS: { label: string; value: OverlayDismissMs }[] = [
   { label: '4s', value: 4000 },
@@ -69,6 +77,11 @@ export function SettingsModal({ open, onClose, onClearAnswerBank, onDeleteAllDat
   const openShortcutsPage = useCallback(() => {
     chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
   }, []);
+
+  const replayWalkthrough = useCallback(() => {
+    void openOnboardingTab();
+    onClose();
+  }, [onClose]);
 
   const runConfirmed = useCallback(async () => {
     const kind = confirm;
@@ -156,6 +169,15 @@ export function SettingsModal({ open, onClose, onClearAnswerBank, onDeleteAllDat
           />
         </Section>
 
+        <Section title="Onboarding">
+          <IconActionRow
+            label="Open onboarding"
+            desc="Walk through the demo flow again with the sample profile."
+            icon={Sparkles}
+            onClick={replayWalkthrough}
+          />
+        </Section>
+
         <Section title="Advanced">
           <ToggleRow
             label="Disable ML classifier"
@@ -191,7 +213,7 @@ export function SettingsModal({ open, onClose, onClearAnswerBank, onDeleteAllDat
         </div>
       </div>
     ),
-    [settings, onToggle, openShortcutsPage],
+    [settings, onToggle, openShortcutsPage, replayWalkthrough],
   );
 
   const modal = (
@@ -218,7 +240,12 @@ export function SettingsModal({ open, onClose, onClearAnswerBank, onDeleteAllDat
                 <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 shrink-0">
                   <SettingsIcon size={16} className="text-primary" />
                 </div>
-                <h3 className="text-sm font-medium text-foreground pt-1">Settings</h3>
+                <div className="pt-0.5">
+                  <h3 className="text-sm font-medium text-foreground leading-none">Settings</h3>
+                  <p className="mt-1 text-[10px] uppercase tracking-[0.12em] font-medium text-muted-foreground/60 leading-none">
+                    v{chrome.runtime.getManifest().version}
+                  </p>
+                </div>
               </div>
               <button
                 type="button"

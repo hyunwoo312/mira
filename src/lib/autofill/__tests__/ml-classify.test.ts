@@ -111,6 +111,11 @@ describe('label map consistency', () => {
   });
 
   it('should have exactly 58 categories', () => {
+    // v0.2.2 retrain-4 shipped 58. v0.2.3 retrain-5 added `stackoverflow` to
+    // label_map (item 13) → 59. v0.3.0 retrain-6 dropped stackoverflow (still
+    // present as label, gated by NEVER_FILL_CATEGORIES) and address1/address2
+    // got rare-class-dropped (<2 samples each) → 58. Bump this count whenever
+    // label_map.json gains/loses a label.
     expect(Object.keys(labelMap.label2id)).toHaveLength(58);
   });
 
@@ -286,6 +291,95 @@ describe('classifyFields (three-tier flow)', () => {
 
     // firstName is not allowed on textareas — should be rejected
     expect(fields[0]!.category).toBeNull();
+  });
+
+  // Defense-in-depth: heuristic-classified profile categories on textareas
+  // are also rejected (Zip ATS substring match used to stuff "77382" into
+  // "...interested in Zip specifically?" textarea — the regex was tightened
+  // separately, this guard catches any future surface with the same shape).
+  it('should reject heuristic classification on textareas for non-allowed categories', async () => {
+    globalThis.chrome.runtime.sendMessage = vi.fn().mockResolvedValue({ classifications: [] });
+
+    const textarea = document.createElement('textarea');
+    document.body.appendChild(textarea);
+
+    const fields: ScanResult[] = [
+      {
+        label: 'Email',
+        widgetType: 'plain-text',
+        ats: 'generic',
+        element: textarea,
+        // Pre-classified by heuristic — would normally be filled.
+        category: 'email',
+        classifiedBy: 'heuristic',
+      },
+    ];
+
+    await classifyFields(fields);
+    expect(fields[0]!.category).toBeNull();
+  });
+
+  it('should keep allowed categories on textareas (workDescription / customQuestion / profileLinks)', async () => {
+    globalThis.chrome.runtime.sendMessage = vi.fn().mockResolvedValue({ classifications: [] });
+    const textarea = document.createElement('textarea');
+    document.body.appendChild(textarea);
+
+    const fields: ScanResult[] = [
+      {
+        label: 'GitHub, Stackoverflow, or other technical profile',
+        widgetType: 'plain-text',
+        ats: 'generic',
+        element: textarea,
+        category: 'profileLinks',
+        classifiedBy: 'heuristic',
+      },
+    ];
+    await classifyFields(fields);
+    expect(fields[0]!.category).toBe('profileLinks');
+  });
+
+  // Textarea-only gate for the multi-link prompt heuristic. Gallatin AI
+  // Ashby (2026-05-02) shipped "Portfolio URL or GitHub URL" as a
+  // single-line text input — the newline-joined profileLinks value got
+  // mashed into one broken URL string. Gate the heuristic to textareas.
+  it('routes multi-link prompt to profileLinks on textarea', async () => {
+    globalThis.chrome.runtime.sendMessage = vi.fn().mockResolvedValue({ classifications: [] });
+    const textarea = document.createElement('textarea');
+    document.body.appendChild(textarea);
+
+    const fields: ScanResult[] = [
+      {
+        label: 'Please provide your GitHub, Stackoverflow, or other technical profile',
+        widgetType: 'plain-text',
+        ats: 'generic',
+        element: textarea,
+        category: null,
+      },
+    ];
+    await classifyFields(fields);
+    expect(fields[0]!.category).toBe('profileLinks');
+    expect(fields[0]!.classifiedBy).toBe('heuristic');
+  });
+
+  it('does NOT route multi-link prompt to profileLinks on single-line input', async () => {
+    globalThis.chrome.runtime.sendMessage = vi.fn().mockResolvedValue({ classifications: [] });
+    const input = document.createElement('input');
+    input.type = 'text';
+    document.body.appendChild(input);
+
+    const fields: ScanResult[] = [
+      {
+        label: 'Portfolio URL or GitHub URL',
+        widgetType: 'plain-text',
+        ats: 'generic',
+        element: input,
+        category: null,
+      },
+    ];
+    await classifyFields(fields);
+    // Per-link heuristic order picks 'github' (first match in pattern order).
+    expect(fields[0]!.category).toBe('github');
+    expect(fields[0]!.classifiedBy).toBe('heuristic');
   });
 
   it('should classify long checkbox labels as consent', async () => {

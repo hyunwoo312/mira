@@ -1,6 +1,6 @@
 # Mira — Privacy Policy
 
-**Last updated:** April 20, 2026
+**Last updated:** May 2, 2026
 
 Mira is a browser extension that auto-fills job application forms. This policy explains what data Mira collects, how it is stored, and your rights regarding that data.
 
@@ -32,7 +32,7 @@ Mira stores only data you explicitly provide through the side panel interface:
 
 **Work Preferences**
 
-- Salary range, work authorization, sponsorship needs, relocation willingness, work arrangement, notice period
+- Salary range, work authorization, sponsorship needs, relocation willingness, relocation-assistance needs, willingness to travel, work arrangement, earliest start date, notice period, visa type, security clearance, SMS-contact consent flag
 
 **Equal Employment Opportunity (EEO) Data**
 
@@ -90,7 +90,11 @@ Mira does **not**:
 
 ---
 
-## 4. ML Model
+## 4. Onboarding & Demo Profile
+
+When you first install Mira (or replay the walkthrough from Settings), an onboarding tab opens with a sample candidate ("Mira Lewandowski") so you can try autofill before building your real profile. This sample profile is hardcoded into the extension and lives only in the onboarding tab's memory — it is never written to storage and disappears when the tab closes. If you choose to upload a resume or cover letter during the onboarding walkthrough, those files are saved to your real profile's document storage so they remain available after onboarding ends. No other onboarding state persists.
+
+## 5. ML Model
 
 Mira includes a machine learning model (~38 MB, DeBERTa-v3-xsmall) for classifying form fields and scoring option matches. This model:
 
@@ -98,11 +102,11 @@ Mira includes a machine learning model (~38 MB, DeBERTa-v3-xsmall) for classifyi
 - Uses WebAssembly (WASM) for inference via ONNX Runtime
 - Is loaded from the extension's bundled files, not downloaded from the internet
 - Does not transmit any data externally
-- Is unloaded from memory when you close the side panel
+- Is unloaded from memory after five minutes of inactivity (via `chrome.alarms`) to free WASM memory; reloaded automatically on the next fill
 
 ---
 
-## 5. Permissions
+## 6. Permissions
 
 Mira requests the following browser permissions:
 
@@ -114,11 +118,13 @@ Mira requests the following browser permissions:
 | `offscreen`                    | To run the ML model in an isolated background document                                                                                               |
 | `scripting`                    | To inject the content script that detects and fills form fields                                                                                      |
 | `webNavigation`                | To fill forms inside iframes (e.g., embedded ATS forms)                                                                                              |
+| `contextMenus`                 | To register the right-click "Mira: Auto-fill" item; sub-items appear when multiple presets exist                                                     |
+| `alarms`                       | To unload the ML model from memory after 5 minutes of inactivity                                                                                     |
 | `<all_urls>` (host)            | To run on any job application site. The content script only activates when you click Fill — it does not run automatically or collect data passively. |
 
 ---
 
-## 6. Data Retention
+## 7. Data Retention
 
 - Your data is stored indefinitely until you delete it.
 - Uninstalling Mira removes all locally stored data.
@@ -126,7 +132,7 @@ Mira requests the following browser permissions:
 
 ---
 
-## 7. Your Rights
+## 8. Your Rights
 
 You have full control over your data:
 
@@ -138,18 +144,18 @@ You have full control over your data:
 
 ---
 
-## 8. Children's Privacy
+## 9. Children's Privacy
 
 Mira is not directed at children under 13. We do not knowingly collect data from children.
 
 ---
 
-## 9. Changes to This Policy
+## 10. Changes to This Policy
 
 If this policy changes, the updated version will be included with the extension update and the "Last updated" date will be revised.
 
 ---
 
-## 10. Contact
+## 11. Contact
 
 For questions about this privacy policy or Mira's data practices, open an issue on the project's GitHub repository.

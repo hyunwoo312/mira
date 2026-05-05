@@ -62,6 +62,11 @@ export class FillOverlay {
   private cleanupFns: (() => void)[] = [];
 
   constructor() {
+    // De-dup: if a stale overlay host is still attached (rapid re-fill on a
+    // SPA, content-script re-injection), remove it before mounting a fresh one.
+    const stale = document.getElementById('__mira-overlay-host');
+    if (stale) stale.remove();
+
     this.host = document.createElement('div');
     this.host.id = '__mira-overlay-host';
     this.shadow = this.host.attachShadow({ mode: 'closed' });
@@ -75,6 +80,7 @@ export class FillOverlay {
 
     this.reactRoot = createRoot(container);
     document.documentElement.appendChild(this.host);
+    document.documentElement.setAttribute('data-mira-overlay', '1');
 
     // Load theme
     chrome.storage.local.get(THEME_KEY).then((r) => {
@@ -160,6 +166,7 @@ export class FillOverlay {
     for (const fn of this.cleanupFns) fn();
     this.cleanupFns = [];
     this.host.remove();
+    document.documentElement.removeAttribute('data-mira-overlay');
   }
 
   private render(): void {

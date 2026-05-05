@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyByOptions } from '../../classify/options';
+import { classifyByOptions, looksLikeCountryList } from '../../classify/options';
 
 describe('classifyByOptions', () => {
   describe('gender', () => {
@@ -30,6 +30,30 @@ describe('classifyByOptions', () => {
 
     it('detects a short-form race set', () => {
       expect(classifyByOptions(['Asian', 'Black', 'Hispanic', 'White', 'Other'])).toBe('race');
+    });
+
+    it('does NOT classify a long university dropdown as race', () => {
+      // Palantir Lever native-select shipped a 1,500-entry university list
+      // whose entries trivially substring-match race tokens
+      // ("Asian University of Bangladesh", "American Indian College",
+      // "Black Hills State University", "African Leadership", etc.). The
+      // race signature must not fire on lists of this size.
+      const universityList = [
+        'Aalborg University',
+        'Asian University of Bangladesh',
+        'African Leadership University, Rwanda',
+        'American University',
+        'Black Hills State University',
+        'Native Hawaiian University',
+        'White Sands Community College',
+        'Pacific University',
+        'Stanford University',
+        'University of Texas - Austin',
+        'Yale University',
+        'Did not attend university',
+        'Other - School Not Listed',
+      ];
+      expect(classifyByOptions(universityList)).not.toBe('race');
     });
   });
 
@@ -137,6 +161,50 @@ describe('classifyByOptions', () => {
     });
   });
 
+  describe('exportControl (granular ITAR 5-option)', () => {
+    // Chaos Industries Greenhouse (2026-05-01) — ML routes these to visaType
+    // at low confidence and only happens to fill correctly for US citizens.
+    // Detecting the option shape directly upgrades to exportControl so the
+    // alias matcher works for everyone.
+    it('detects the canonical 5-option ITAR list', () => {
+      expect(
+        classifyByOptions([
+          'A United States citizen or national',
+          'A person lawfully admitted for permanent residence of the United States (i.e., "Green Card" holder)',
+          'A person admitted as a refugee to the United States under 8 U.S.C. 1157',
+          'A person admitted as an asylee to the United States under 8 U.S.C 1158',
+          'None of the above',
+        ]),
+      ).toBe('exportControl');
+    });
+
+    it('detects shorter ITAR phrasings', () => {
+      expect(
+        classifyByOptions([
+          'U.S. citizen',
+          'Lawful permanent resident',
+          'Refugee',
+          'Asylee',
+          'Foreign person',
+        ]),
+      ).toBe('exportControl');
+    });
+
+    it('does NOT classify Yes/No exportControl as the granular shape', () => {
+      // Yes/No must fall through to label-based classification; the registry
+      // guard in fillers/select.ts handles the skip.
+      expect(classifyByOptions(['Yes', 'No'])).not.toBe('exportControl');
+    });
+
+    it('does NOT classify the visaType dropdown as exportControl', () => {
+      // visaType lists have H-1B / L-1 etc. — only one ITAR token at most
+      // ("US Citizen"). Hits=1, threshold ≥3, signature does not fire.
+      expect(
+        classifyByOptions(['US Citizen', 'Green Card', 'H-1B', 'L-1', 'O-1', 'TN', 'Other']),
+      ).not.toBe('exportControl');
+    });
+  });
+
   describe('inconclusive / null cases', () => {
     it('returns null for too-small option lists', () => {
       expect(classifyByOptions(['Yes'])).toBeNull();
@@ -156,5 +224,40 @@ describe('classifyByOptions', () => {
       // Just "Male" alone isn't enough to fire a gender signature
       expect(classifyByOptions(['Male'])).toBeNull();
     });
+  });
+});
+
+describe('looksLikeCountryList', () => {
+  it('detects a workAuth-style country list with a No fallback', () => {
+    expect(
+      looksLikeCountryList([
+        'United States',
+        'Singapore',
+        'No',
+        'N.A. - this is a remote position',
+      ]),
+    ).toBe(true);
+  });
+
+  it('detects two-country lists', () => {
+    expect(looksLikeCountryList(['United States', 'Canada'])).toBe(true);
+  });
+
+  it('rejects pure Yes/No', () => {
+    expect(looksLikeCountryList(['Yes', 'No'])).toBe(false);
+  });
+
+  it('rejects long lists (likely a full country dropdown rather than a few options)', () => {
+    const many = ['United States', 'Canada', 'Mexico', 'Germany', 'France', 'Japan', 'Korea'];
+    expect(looksLikeCountryList(many)).toBe(false);
+  });
+
+  it('rejects empty / single-option lists', () => {
+    expect(looksLikeCountryList([])).toBe(false);
+    expect(looksLikeCountryList(['United States'])).toBe(false);
+  });
+
+  it('rejects unrelated short lists', () => {
+    expect(looksLikeCountryList(['Red', 'Green', 'Blue'])).toBe(false);
   });
 });

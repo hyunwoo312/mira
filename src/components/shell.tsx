@@ -1,13 +1,18 @@
-import { useState, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { FormProvider } from 'react-hook-form';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
+import { X } from 'lucide-react';
 import { PresetBar } from './preset-bar';
 import { ProfileCompleteness } from './profile-completeness';
 import { TabBar } from './tab-bar';
 import { FillBar } from './fill-bar';
+import { BottomNav, type TopLevelTab } from './bottom-nav';
 import { Section } from './section';
 import { DeletePresetDialog } from './delete-preset-dialog';
 import { ApplicationTracker } from './application-tracker';
+import { EmptyStatePrompt } from './empty-state-prompt';
+import { ImportReviewModal, type CommitArgs } from './import-review-modal';
+import { UndoImportBanner } from './undo-import-banner';
 import {
   PersonalSection,
   LinksSection,
@@ -20,12 +25,17 @@ import {
   AnswersSection,
 } from './sections';
 import { useScrollspy } from '@/hooks/use-scrollspy';
-import { useProfile } from '@/hooks/use-profile';
+import { useProfileWithDemo } from '@/hooks/use-profile-with-demo';
 import { useFill } from '@/hooks/use-fill';
 import { useFiles } from '@/hooks/use-files';
+import { useImportPrompt } from '@/hooks/use-import-prompt';
+import { useResumeImport } from '@/hooks/use-resume-import';
 import { PROFILE_SECTIONS } from '@/types/profile';
 import { cn } from '@/lib/utils';
 import { clearAllAnswerBanks } from '@/lib/storage';
+import { commitImport, validateParsedFields } from '@/lib/import/commit';
+import { dismissImportPrompt } from '@/lib/import/empty-state';
+import type { Profile } from '@/lib/schema';
 import type { SectionId } from '@/types/profile';
 import type { FC } from 'react';
 
@@ -78,28 +88,108 @@ export function Shell() {
     exportAllData,
     importData,
     deleteAllData,
-  } = useProfile();
+    isDemoActive,
+  } = useProfileWithDemo();
   const { isLoading, result, logs, pageUrl, fill } = useFill();
-  const { files } = useFiles(activePresetId);
+  const { files, addFile, removeFile } = useFiles(activePresetId);
 
   const firstName = form.watch('firstName');
   const lastName = form.watch('lastName');
   const email = form.watch('email');
-  const profileReady = !!(firstName?.trim() && lastName?.trim() && email?.trim());
+  // Demo preset has blank name fields by design — keep Fill enabled so the
+  // walkthrough's autofill can still be triggered without forcing setup.
+  const profileReady = isDemoActive || !!(firstName?.trim() && lastName?.trim() && email?.trim());
 
   const [deletePresetId, setDeletePresetId] = useState<string | null>(null);
-  const [showTracker, setShowTracker] = useState(false);
+  const [activeTab, setActiveTab] = useState<TopLevelTab>('profile');
   const [profileAnimKey, setProfileAnimKey] = useState(0);
+  const [importErrorToast, setImportErrorToast] = useState<string | null>(null);
+  const [undoTarget, setUndoTarget] = useState<{
+    profile: Profile;
+    attachedFileId: string | null;
+  } | null>(null);
+  const showTracker = activeTab === 'tracker';
 
-  const toggleTracker = useCallback((show: boolean) => {
-    setShowTracker(show);
-    if (!show) setProfileAnimKey((k) => k + 1); // trigger re-entry animation
+  const handleTabChange = useCallback((tab: TopLevelTab) => {
+    setActiveTab(tab);
+    if (tab === 'profile') setProfileAnimKey((k) => k + 1);
   }, []);
 
   const handleFill = useCallback(async () => {
     await saveNow();
-    fill();
-  }, [saveNow, fill]);
+    fill(activePresetId);
+  }, [saveNow, fill, activePresetId]);
+
+  // ── Resume import wiring ──────────────────────────────────────────────────
+  const showImportError = useCallback((message: string) => {
+    setImportErrorToast(message);
+  }, []);
+
+  useEffect(() => {
+    if (!importErrorToast) return;
+    const timer = setTimeout(() => setImportErrorToast(null), 6000);
+    return () => clearTimeout(timer);
+  }, [importErrorToast]);
+
+  const importFlow = useResumeImport({ onError: showImportError });
+  const importPrompt = useImportPrompt({
+    presetId: activePresetId,
+    profile: form.getValues(),
+    paused: isDemoActive,
+  });
+
+  const handleImportCommit = useCallback(
+    async (args: CommitArgs) => {
+      const payload = importFlow.pending;
+      if (!payload) return;
+
+      const baseProfile = form.getValues();
+      const sanitizedFields = validateParsedFields(payload.fields);
+      const result = commitImport(baseProfile, { ...payload, fields: sanitizedFields }, args.mode);
+      form.reset(result.profile);
+      await saveNow();
+
+      let attachedFileId: string | null = null;
+      if (result.attachFile) {
+        const stored = await addFile(payload.file, 'resume');
+        attachedFileId = stored?.id ?? null;
+      }
+
+      await dismissImportPrompt(args.target.presetId);
+      setUndoTarget({ profile: baseProfile, attachedFileId });
+    },
+    [importFlow.pending, form, saveNow, addFile],
+  );
+
+  // TTL the undo banner — 10s after import, banner disappears.
+  useEffect(() => {
+    if (!undoTarget) return;
+    const timer = setTimeout(() => setUndoTarget(null), 10_000);
+    return () => clearTimeout(timer);
+  }, [undoTarget]);
+
+  // Drop a stale undo target when the user switches presets — undoing into
+  // a different preset would corrupt it.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset on preset switch
+    setUndoTarget(null);
+  }, [activePresetId]);
+
+  const handleUndoImport = useCallback(async () => {
+    if (!undoTarget) return;
+    form.reset(undoTarget.profile);
+    await saveNow();
+    if (undoTarget.attachedFileId) {
+      await removeFile(undoTarget.attachedFileId);
+    }
+    setUndoTarget(null);
+  }, [undoTarget, form, saveNow, removeFile]);
+
+  const handleFillManually = useCallback(() => {
+    void importPrompt.dismiss();
+  }, [importPrompt]);
+
+  const showEmptyState = activeTab === 'profile' && importPrompt.shouldShow;
 
   if (!isLoaded) {
     return (
@@ -183,6 +273,7 @@ export function Shell() {
                   onRename={rename}
                   onExport={exportAllData}
                   onImport={importData}
+                  onImportResume={isDemoActive ? undefined : importFlow.triggerImport}
                 />
               </motion.div>
               <motion.div
@@ -213,6 +304,7 @@ export function Shell() {
                 onRename={rename}
                 onExport={exportAllData}
                 onImport={importData}
+                onImportResume={isDemoActive ? undefined : importFlow.triggerImport}
               />
               <ProfileCompleteness lastSaved={lastSaved} hasDocuments={files.length > 0} />
               <TabBar activeSection={activeSection} onTabClick={scrollToSection} />
@@ -223,12 +315,21 @@ export function Shell() {
         <div
           ref={containerRef}
           className={cn(
-            'flex-1 overflow-y-auto scroll-area px-6 pt-4 pb-32',
+            'flex-1 overflow-y-auto scroll-area px-6 pt-4 pb-32 relative',
             profileAnimKey > 0 && 'animate-slide-in-left',
           )}
           key={`scroll-${profileAnimKey}`}
           style={{ display: showTracker ? 'none' : undefined }}
         >
+          <ImportErrorToast
+            message={importErrorToast}
+            onDismiss={() => setImportErrorToast(null)}
+          />
+          <UndoImportBanner
+            active={undoTarget !== null}
+            onUndo={handleUndoImport}
+            onDismiss={() => setUndoTarget(null)}
+          />
           {PROFILE_SECTIONS.map((section) => {
             const Component = SECTION_MAP[section.id];
             const heading = SECTION_HEADINGS[section.id];
@@ -240,7 +341,10 @@ export function Shell() {
                 titleBold={heading.bold}
               >
                 {section.id === 'documents' ? (
-                  <DocumentsSection presetId={activePresetId} />
+                  <DocumentsSection
+                    presetId={activePresetId}
+                    onResumePdf={isDemoActive ? undefined : importFlow.parseFile}
+                  />
                 ) : (
                   <Component />
                 )}
@@ -261,109 +365,26 @@ export function Shell() {
           </motion.div>
         )}
 
-        {/* ── Bookmark tab: fixed to viewport, independent of scroll ── */}
-        <motion.div
-          className="fixed z-50"
-          style={{ top: '50%', y: '-50%' }}
-          animate={{
-            right: showTracker ? 'auto' : 0,
-            left: showTracker ? 0 : 'auto',
-          }}
-          transition={slideTransition}
-          layout
-        >
-          <motion.button
-            type="button"
-            onClick={() => toggleTracker(!showTracker)}
-            className={cn(
-              'relative flex flex-col items-center justify-center',
-              'w-[16px] h-[64px] cursor-pointer',
-              'group',
-            )}
-            whileHover={{ width: 20 }}
-            whileTap={{ scale: 0.92 }}
-            layout
-            aria-label={showTracker ? 'Back to profile' : 'Open application tracker'}
-          >
-            {/* Bookmark shape */}
-            <motion.div
-              className="absolute inset-0 border border-border/40"
-              animate={{
-                borderRadius: showTracker ? '0 6px 6px 0' : '6px 0 0 6px',
-                backgroundColor: showTracker ? 'var(--color-foreground)' : 'var(--color-primary)',
-                borderLeftWidth: showTracker ? 0 : 1,
-                borderRightWidth: showTracker ? 1 : 0,
-              }}
-              transition={{ duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
-              style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
-              layout
-            />
-
-            {/* Arrow chevron */}
-            <motion.div
-              className="relative z-10"
-              animate={{ rotate: showTracker ? 180 : 0 }}
-              transition={{ duration: 0.5, ease: [0.34, 1.56, 0.64, 1] }}
-            >
-              <svg
-                width="8"
-                height="14"
-                viewBox="0 0 8 14"
-                fill="none"
-                className="group-hover:scale-110 transition-transform duration-150"
-              >
-                <motion.path
-                  d="M6 2L2 7L6 12"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  animate={{
-                    stroke: showTracker
-                      ? 'var(--color-background)'
-                      : 'var(--color-primary-foreground)',
-                  }}
-                  transition={{ duration: 0.3 }}
-                />
-              </svg>
-            </motion.div>
-
-            {/* Hover tooltip */}
-            <div
-              className={cn(
-                'absolute top-1/2 -translate-y-1/2 pointer-events-none',
-                'px-2.5 py-1.5 rounded-lg',
-                'bg-popover/95 backdrop-blur-sm border border-border/50 shadow-lg',
-                'text-[10px] font-medium text-foreground/60 whitespace-nowrap',
-                'opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100',
-                'transition-all duration-200 ease-out',
-                showTracker ? 'left-full ml-3 text-left' : 'right-full mr-3 text-right',
-              )}
-            >
-              <span className="block">
-                {showTracker ? 'Back to Profile →' : '← Application Tracker'}
-              </span>
-              <span className="block text-[8px] text-foreground/50 mt-0.5 font-normal">
-                {showTracker ? 'Edit your profile and fill forms' : 'View your application history'}
-              </span>
-            </div>
-          </motion.button>
-        </motion.div>
-
-        {/* ── FillBar: always visible ── */}
-        <FillBar
-          onFill={handleFill}
-          isLoading={isLoading}
-          result={result}
-          logs={logs}
-          pageUrl={pageUrl}
-          profileReady={profileReady}
-          onDeleteAll={deleteAllData}
-          onClearAnswerBank={async () => {
-            await clearAllAnswerBanks();
-            form.setValue('answerBank', []);
-          }}
-        />
+        {/* ── Footer region: FillBar + BottomNav share bg + top border ── */}
+        <div className="border-t border-border bg-[oklch(0.87_0.025_70)] dark:bg-[oklch(0.24_0.012_70)]">
+          <FillBar
+            onFill={handleFill}
+            isLoading={isLoading}
+            result={result}
+            logs={logs}
+            pageUrl={pageUrl}
+            profileReady={profileReady}
+          />
+          <BottomNav
+            activeTab={activeTab}
+            onTabChange={handleTabChange}
+            onDeleteAll={deleteAllData}
+            onClearAnswerBank={async () => {
+              await clearAllAnswerBanks();
+              form.setValue('answerBank', []);
+            }}
+          />
+        </div>
 
         <DeletePresetDialog
           open={deletePresetId !== null}
@@ -374,7 +395,83 @@ export function Shell() {
           }}
           onCancel={() => setDeletePresetId(null)}
         />
+
+        <EmptyStatePrompt
+          open={showEmptyState && !showTracker}
+          onDismiss={handleFillManually}
+          onImportResume={importFlow.triggerImport}
+          parsing={importFlow.parsing}
+        />
+
+        <ImportReviewModal
+          open={importFlow.pending !== null}
+          onClose={importFlow.closeReview}
+          payload={importFlow.pending}
+          currentProfile={form.getValues()}
+          activePresetId={activePresetId}
+          onCommit={handleImportCommit}
+        />
+
+        <ParsingIndicator visible={importFlow.parsing} />
       </div>
     </FormProvider>
+  );
+}
+
+function ParsingIndicator({ visible }: { visible: boolean }) {
+  return (
+    <AnimatePresence>
+      {visible && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={{ duration: 0.18 }}
+          className="fixed top-3 left-1/2 -translate-x-1/2 z-50 px-3 py-1.5 rounded-md bg-popover border border-border shadow-md text-[11px] font-medium text-foreground/80"
+          role="status"
+          aria-live="polite"
+        >
+          Parsing your resume…
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function ImportErrorToast({
+  message,
+  onDismiss,
+}: {
+  message: string | null;
+  onDismiss: () => void;
+}) {
+  return (
+    <AnimatePresence>
+      {message && (
+        <motion.div
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -4 }}
+          transition={{ duration: 0.22, ease: [0.25, 0.1, 0.25, 1] }}
+          className="sticky top-2 mx-3 z-20 rounded-lg border border-destructive/50 bg-[oklch(0.87_0.025_70)] dark:bg-[oklch(0.24_0.012_70)] shadow-sm overflow-hidden"
+          role="alert"
+        >
+          <div className="flex items-center gap-3 px-3.5 py-2.5">
+            <span className="text-[9px] uppercase tracking-[0.14em] font-semibold text-destructive shrink-0">
+              Error
+            </span>
+            <span className="flex-1 text-[12px] text-foreground/85 leading-snug">{message}</span>
+            <button
+              type="button"
+              onClick={onDismiss}
+              aria-label="Dismiss"
+              className="text-foreground/40 hover:text-foreground/70 transition-colors cursor-pointer"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

@@ -1,6 +1,16 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, Plus, Pencil, Trash2, Download, Upload, Check, X } from 'lucide-react';
+import {
+  ChevronDown,
+  Plus,
+  Pencil,
+  Trash2,
+  Download,
+  Upload,
+  Check,
+  X,
+  FileText,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Preset } from '@/lib/storage';
 
@@ -15,6 +25,7 @@ interface PresetBarProps {
   onRename: (presetId: string, name: string) => void;
   onExport?: () => void;
   onImport?: (file: File) => void | Promise<void>;
+  onImportResume?: () => void;
 }
 
 export function PresetBar({
@@ -26,6 +37,7 @@ export function PresetBar({
   onRename,
   onExport,
   onImport,
+  onImportResume,
 }: PresetBarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -284,6 +296,17 @@ export function PresetBar({
       </div>
 
       <div className="flex items-center -mr-1 shrink-0">
+        {onImportResume && (
+          <button
+            type="button"
+            onClick={onImportResume}
+            title="Import from resume (PDF)"
+            aria-label="Import from resume"
+            className="flex items-center justify-center w-7 h-8 text-primary/80 hover:text-primary transition-colors cursor-pointer"
+          >
+            <FileText size={15} strokeWidth={1.85} />
+          </button>
+        )}
         {onExport && (
           <button
             type="button"

@@ -196,3 +196,24 @@ input:-webkit-autofill:focus {
   -webkit-box-shadow: 0 0 0 1000px var(--background) inset;
   transition: background-color 5000s ease-in-out 0s;
 }
+
+/* Onboarding Submitted-phase tip icons: animate the lucide stroke drawing in. */
+.tip-icon-stroke svg :where(path, line, polyline, polygon, rect, circle) {
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
+  animation: tip-icon-stroke-draw 0.7s cubic-bezier(0.25, 0.1, 0.25, 1) 0.2s forwards;
+}
+
+@keyframes tip-icon-stroke-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tip-icon-stroke svg :where(path, line, polyline, polygon, rect, circle) {
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+    animation: none;
+  }
+}

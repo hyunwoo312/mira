@@ -1,6 +1,6 @@
 import type { ScanResult } from '../types';
 import { classifyByOptions } from './options';
-import { classifyField } from './patterns';
+import { classifyField, detectMultiLinkPrompt } from './patterns';
 import { classifyWithML } from './ml';
 import { bridgeGetSelectState } from '../bridge';
 import { pruneWorkSectionAddresses } from '../scanners/shared';
@@ -80,10 +80,19 @@ export async function classifyFields(
       }
     }
 
-    // Tier 2: Heuristic patterns (short unambiguous labels)
+    // Tier 2: Heuristic patterns (short unambiguous labels).
     const heuristicCat = classifyField(field.label);
     if (heuristicCat) {
       field.category = heuristicCat;
+      field.classifiedBy = 'heuristic';
+      continue;
+    }
+
+    // Tier 2a: textarea-only multi-link prompt → profileLinks. On a
+    // single-line input the newline-joined value would mash into one
+    // broken URL.
+    if (field.element instanceof HTMLTextAreaElement && detectMultiLinkPrompt(field.label)) {
+      field.category = 'profileLinks';
       field.classifiedBy = 'heuristic';
       continue;
     }
@@ -134,16 +143,17 @@ export async function classifyFields(
     }
   }
 
-  // Post-ML validation: textareas are almost never standard fields.
-  // Only a few categories legitimately use textareas (e.g., workDescription).
-  // Reject all other ML predictions on textareas to prevent misclassification.
+  // Textareas only legitimately fill these. Applied to all classifiers
+  // (ml / heuristic / options) so substring matches can't stuff profile
+  // fields into free-response textareas.
   const TEXTAREA_ALLOWED_CATEGORIES = new Set([
     'workDescription',
     'customQuestion',
+    'profileLinks',
     'unknown',
     '__skip__',
   ]);
-  for (const field of needML) {
+  for (const field of fields) {
     if (!field.category) continue;
     if (
       field.element instanceof HTMLTextAreaElement &&

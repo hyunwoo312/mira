@@ -25,7 +25,7 @@ env.backends.onnx.wasm!.numThreads = 1;
 
 type StatusCallback = (status: ModelStatus, progress?: number, error?: string) => void;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- transformers.js doesn't export the runtime PreTrainedTokenizer type
 type Tokenizer = any;
 
 interface LabelMap {

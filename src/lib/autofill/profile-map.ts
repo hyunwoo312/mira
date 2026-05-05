@@ -79,6 +79,134 @@ function deriveStartDate(p: Profile): string {
   return 'Immediately';
 }
 
+/** Numeric tier for degree-level comparison (associate=1, …, doctorate=4). */
+const DEGREE_TIER: Record<string, number> = {
+  associate: 1,
+  associates: 1,
+  aa: 1,
+  as: 1,
+  bachelor: 2,
+  bachelors: 2,
+  ba: 2,
+  bs: 2,
+  bsc: 2,
+  beng: 2,
+  undergraduate: 2,
+  master: 3,
+  masters: 3,
+  ma: 3,
+  ms: 3,
+  msc: 3,
+  meng: 3,
+  mba: 3,
+  graduate: 3,
+  doctorate: 4,
+  doctoral: 4,
+  doctor: 4,
+  phd: 4,
+};
+
+function normalizeDegreeToken(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/['’ʼ.\-_/]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tierForDegreeText(s: string): number {
+  const norm = normalizeDegreeToken(s);
+  // Whole-string then per-token so multi-word degrees ("Bachelor of Science") match.
+  if (DEGREE_TIER[norm] !== undefined) return DEGREE_TIER[norm]!;
+  for (const tok of norm.split(/\s+/)) {
+    if (DEGREE_TIER[tok] !== undefined) return DEGREE_TIER[tok]!;
+  }
+  return 0;
+}
+
+/** Parse "Do you have a <degree> in <field>?" into tier + field token. */
+export function parseDegreeQuestion(label: string): { tier: number; field: string } | null {
+  // Strip trailing label decorators (required-field markers, trailing ?).
+  const cleaned = label.replace(/[\s?*✱✦✓:]+$/u, '').trim();
+  const m = cleaned.match(
+    /(?:do|have)\s+you\s+(?:have|hold|earned|completed|obtained|received|possess)\s+(?:an?\s+|the\s+)?(bachelor'?s?|master'?s?|associate'?s?|doctorate|doctoral|ph\.?d|m\.?b\.?a|degree|undergraduate|graduate)\s*(?:degree)?\s*(?:in|of)\s+(.+?)\s*$/i,
+  );
+  if (!m) return null;
+  const tier = tierForDegreeText(m[1]!);
+  if (!tier && !/\bdegree\b/i.test(m[1]!)) return null;
+  // Bare "degree" → tier-2 (bachelor's-or-better).
+  const effectiveTier = tier || 2;
+  const fieldRaw = m[2]!
+    .replace(/\b(?:or|and)\s+(?:a\s+)?(?:related|similar|equivalent)(?:\s+field)?\b.*$/i, '')
+    .replace(/\b(?:related|similar|equivalent)\s+field\b.*$/i, '')
+    .trim();
+  return { tier: effectiveTier, field: fieldRaw.toLowerCase() };
+}
+
+/** Tokenize a field name for substring comparison (handles "Computer Science" / "CS"). */
+function fieldTokens(s: string): Set<string> {
+  return new Set(
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]/g, ' ')
+      .split(/\s+/)
+      .filter((t) => t.length >= 2),
+  );
+}
+
+const FIELD_ALIASES: Record<string, string[]> = {
+  cs: ['computer', 'science'],
+  ee: ['electrical', 'engineering'],
+  me: ['mechanical', 'engineering'],
+  it: ['information', 'technology'],
+  ds: ['data', 'science'],
+};
+
+function expandFieldAliases(tokens: Set<string>): Set<string> {
+  const out = new Set<string>();
+  // Replace aliases with their expansion (don't keep both) so "cs" and
+  // "computer science" canonicalize to the same set.
+  for (const tok of tokens) {
+    const expansion = FIELD_ALIASES[tok];
+    if (expansion) {
+      for (const w of expansion) out.add(w);
+    } else {
+      out.add(tok);
+    }
+  }
+  return out;
+}
+
+/** True if the user's stored field-of-study satisfies the question's field. */
+function userFieldMatchesQuestion(userField: string, questionField: string): boolean {
+  const userTokens = expandFieldAliases(fieldTokens(userField));
+  const qTokens = expandFieldAliases(fieldTokens(questionField));
+  if (qTokens.size === 0 || userTokens.size === 0) return false;
+  // All non-noise question tokens must appear in user's tokens. Strict subset
+  // so "computer engineering" doesn't match "computer science".
+  const NOISE = new Set(['or', 'and', 'a', 'an', 'the', 'in', 'of', 'related', 'field']);
+  for (const tok of qTokens) {
+    if (NOISE.has(tok)) continue;
+    if (!userTokens.has(tok)) return false;
+  }
+  return true;
+}
+
+/** Resolve "Do you have a <degree> in <field>?" against the user's education. */
+export function resolveHasDegreeIn(label: string, p: Profile): string {
+  const target = parseDegreeQuestion(label);
+  if (!target) return '';
+  for (const edu of p.education) {
+    if (!edu.degree) continue;
+    const userTier = tierForDegreeText(edu.degree);
+    if (userTier < target.tier) continue;
+    if (userFieldMatchesQuestion(edu.fieldOfStudy ?? '', target.field)) {
+      return 'Yes';
+    }
+  }
+  return p.education.length > 0 ? 'No' : '';
+}
+
 export function profileToFillMap(p: Profile): Record<string, string> {
   const age = getAge(p.dateOfBirth);
 
@@ -121,6 +249,10 @@ export function profileToFillMap(p: Profile): Record<string, string> {
     github: p.github,
     portfolio: p.portfolio,
     twitter: p.twitter,
+
+    // Newline-joined for multi-link textarea prompts; pruning step drops
+    // this entry when none are populated.
+    profileLinks: [p.linkedin, p.github, p.portfolio, p.twitter].filter(Boolean).join('\n'),
 
     // Work
     company: p.workExperience[0]?.company ?? '',

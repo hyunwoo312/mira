@@ -37,7 +37,6 @@ export type OffscreenRequest =
       fieldLabels: string[];
       questions: string[];
     }
-  | { type: 'OFFSCREEN_MATCH_OPTION'; requestId: string; value: string; options: string[] }
   | {
       type: 'OFFSCREEN_SCORE_OPTIONS';
       requestId: string;
@@ -67,19 +66,6 @@ export interface MLMatchAnswersRequest {
 
 export interface MLMatchAnswersResponse {
   matches: AnswerMatch[];
-  error?: string;
-}
-
-/** ML semantic option matching (legacy embeddings): content script → service worker */
-export interface MLMatchOptionRequest {
-  type: 'ML_MATCH_OPTION';
-  value: string;
-  options: string[];
-}
-
-export interface MLMatchOptionResponse {
-  bestIndex: number;
-  similarity: number;
   error?: string;
 }
 

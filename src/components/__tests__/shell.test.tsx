@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { Shell } from '../shell';
 import { PROFILE_SECTIONS } from '@/types/profile';
 
@@ -56,10 +56,25 @@ vi.mock('@/hooks/use-scrollspy', () => ({
 }));
 
 describe('Shell', () => {
-  it('renders tabs after loading', async () => {
+  it('renders profile-section tabs after loading', async () => {
     render(<Shell />);
     await waitFor(() => {
-      expect(screen.getAllByRole('tab')).toHaveLength(PROFILE_SECTIONS.length);
+      // Two top-level Profile/Tracker tabs in BottomNav are scoped out by aria-label.
+      const sectionTabs = screen
+        .getAllByRole('tab')
+        .filter((el) => el.closest('[aria-label="Side panel views"]') === null);
+      expect(sectionTabs).toHaveLength(PROFILE_SECTIONS.length);
+    });
+  });
+
+  it('renders top-level Profile and Tracker tabs', async () => {
+    render(<Shell />);
+    await waitFor(() => {
+      const nav = screen.getByRole('tablist', { name: 'Side panel views' });
+      const tabs = within(nav).getAllByRole('tab');
+      expect(tabs).toHaveLength(2);
+      expect(tabs[0]).toHaveTextContent(/profile/i);
+      expect(tabs[1]).toHaveTextContent(/tracker/i);
     });
   });
 

@@ -32,7 +32,13 @@ async function migrateLegacySkipEeo(store: PresetStore): Promise<void> {
   });
 }
 
-export function useProfile() {
+interface UseProfileOptions {
+  /** Suspend auto-save and saveNow. Used by demo mode to avoid persisting
+   *  the synthetic demo preset's data into the user's real preset. */
+  paused?: boolean;
+}
+
+export function useProfile({ paused = false }: UseProfileOptions = {}) {
   const [isLoaded, setIsLoaded] = useState(false);
   const [store, setStore] = useState<PresetStore | null>(null);
   const [lastSaved, setLastSaved] = useState<number>(0);
@@ -64,6 +70,7 @@ export function useProfile() {
     if (!isLoaded || !store) return;
 
     const sub = form.watch(() => {
+      if (paused) return;
       if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
       autoSaveTimer.current = setTimeout(() => {
         const parsed = profileSchema.safeParse(form.getValues());
@@ -79,11 +86,12 @@ export function useProfile() {
       sub.unsubscribe();
       if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     };
-  }, [isLoaded, store, form]);
+  }, [isLoaded, store, form, paused]);
 
   // Flush current form values to storage immediately (cancels debounce)
   const saveNow = useCallback(async () => {
     if (!store) return;
+    if (paused) return;
     if (autoSaveTimer.current) {
       clearTimeout(autoSaveTimer.current);
       autoSaveTimer.current = null;
@@ -94,7 +102,7 @@ export function useProfile() {
       setStore(updated);
       setLastSaved(Date.now());
     }
-  }, [store, form]);
+  }, [store, form, paused]);
 
   // Switch active preset
   const switchPreset = useCallback(
@@ -109,35 +117,16 @@ export function useProfile() {
     [store, form],
   );
 
-  // Add a new preset — carries over personal section only, defaults for rest
+  // Add a new preset — starts from defaults so the empty-state prompt can
+  // offer resume import. Returns the new preset id, or null on failure.
   const addNewPreset = useCallback(
-    async (name: string) => {
-      if (!store) return false;
-      const current = form.getValues();
-      const newProfile: Profile = {
-        ...DEFAULT_PROFILE,
-        // Carry over personal section
-        firstName: current.firstName,
-        lastName: current.lastName,
-        preferredName: current.preferredName,
-        pronouns: current.pronouns,
-        email: current.email,
-        phone: current.phone,
-        address1: current.address1,
-        address2: current.address2,
-        city: current.city,
-        state: current.state,
-        zipCode: current.zipCode,
-        country: current.country,
-        dateOfBirth: current.dateOfBirth,
-      };
-      const updated = addPreset(store, name, newProfile);
-      if (!updated) return false; // at max
+    async (name: string): Promise<string | null> => {
+      if (!store) return null;
+      const updated = addPreset(store, name, DEFAULT_PROFILE);
+      if (!updated) return null; // at max
       await savePresetStore(updated);
-      // Initialize empty file storage for the new preset so it doesn't inherit legacy files
-      const newId = updated.presets.find(
-        (p) => p.name === name && p.id !== store.activePresetId,
-      )?.id;
+      const newId =
+        updated.presets.find((p) => p.name === name && p.id !== store.activePresetId)?.id ?? null;
       if (newId) {
         const { saveFiles } = await import('@/lib/file-storage');
         await saveFiles([], newId);
@@ -145,7 +134,7 @@ export function useProfile() {
       setStore(updated);
       const profile = getActiveProfile(updated);
       form.reset(profile);
-      return true;
+      return newId;
     },
     [store, form],
   );

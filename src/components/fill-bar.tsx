@@ -8,24 +8,17 @@ import {
   CheckCheck,
   RotateCcw,
   ArrowRight,
+  ChevronDown,
   Loader2,
-  Star,
-  FileText,
-  Settings as SettingsIcon,
-  Sun,
-  Moon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { saveFeedback } from '@/lib/autofill/feedback';
 import { formatDebugLog } from '@/lib/autofill/debug-log';
-import { useTheme } from '@/hooks/use-theme';
-import { SettingsModal } from '@/components/settings-modal';
 import {
   CWS_URL,
   FILL_COUNT_KEY,
   RATE_DISMISSED_KEY,
-  CHANGELOG_KEY,
-  CHANGELOG,
+  FIRST_FILL_CELEBRATED_KEY,
 } from '@/lib/constants';
 
 export interface FillLog {
@@ -60,8 +53,6 @@ interface FillBarProps {
   logs?: FillLog[];
   pageUrl?: string;
   profileReady?: boolean;
-  onDeleteAll?: () => void;
-  onClearAnswerBank?: () => Promise<void> | void;
 }
 
 const ease = [0.25, 0.1, 0.25, 1] as const;
@@ -73,34 +64,23 @@ export function FillBar({
   logs = [],
   pageUrl,
   profileReady = true,
-  onDeleteAll,
-  onClearAnswerBank,
 }: FillBarProps) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showResult, setShowResult] = useState(false);
   const [showRateBanner, setShowRateBanner] = useState(false);
-  const [showChangelogBanner, setShowChangelogBanner] = useState(false);
-  const [showChangelogModal, setShowChangelogModal] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const { theme, toggle: toggleTheme } = useTheme();
+  const [showFirstFillBanner, setShowFirstFillBanner] = useState(false);
 
   useEffect(() => {
     const syncBanners = async () => {
-      const data = await chrome.storage.local.get([
-        FILL_COUNT_KEY,
-        RATE_DISMISSED_KEY,
-        CHANGELOG_KEY,
-      ]);
+      const data = await chrome.storage.local.get([FILL_COUNT_KEY, RATE_DISMISSED_KEY]);
       const count = (data[FILL_COUNT_KEY] as number) ?? 0;
       const dismissed = data[RATE_DISMISSED_KEY] as boolean;
       setShowRateBanner(count >= 5 && !dismissed);
-      const clVersion = data[CHANGELOG_KEY] as string | undefined;
-      setShowChangelogBanner(!!(clVersion && CHANGELOG[clVersion]));
     };
     syncBanners();
     const listener = (changes: Record<string, chrome.storage.StorageChange>) => {
-      if (FILL_COUNT_KEY in changes || RATE_DISMISSED_KEY in changes || CHANGELOG_KEY in changes) {
+      if (FILL_COUNT_KEY in changes || RATE_DISMISSED_KEY in changes) {
         syncBanners();
       }
     };
@@ -113,17 +93,21 @@ export function FillBar({
     chrome.storage.local.set({ [RATE_DISMISSED_KEY]: true });
   }, []);
 
-  const handleRate = useCallback(() => {
-    window.open(CWS_URL, '_blank');
-  }, []);
+  // First successful real fill (not the onboarding demo) shows a one-time
+  // celebratory note. Flag flips on first show so subsequent fills are silent.
+  useEffect(() => {
+    if (!result || isLoading) return;
+    if (result.filled === 0 || result.ats === 'demo') return;
+    chrome.storage.local.get(FIRST_FILL_CELEBRATED_KEY).then((data) => {
+      if (data[FIRST_FILL_CELEBRATED_KEY]) return;
+      setShowFirstFillBanner(true);
+      chrome.storage.local.set({ [FIRST_FILL_CELEBRATED_KEY]: true });
+    });
+  }, [result, isLoading]);
 
-  const handleChangelog = useCallback(() => {
-    setShowChangelogModal(true);
-    if (showChangelogBanner) {
-      setShowChangelogBanner(false);
-      chrome.storage.local.remove(CHANGELOG_KEY);
-    }
-  }, [showChangelogBanner]);
+  const dismissFirstFillBanner = useCallback(() => {
+    setShowFirstFillBanner(false);
+  }, []);
 
   // Show result count briefly, then morph to Re-fill
   useEffect(() => {
@@ -138,10 +122,6 @@ export function FillBar({
     const t = setTimeout(() => setShowResult(false), 0);
     return () => clearTimeout(t);
   }, [result, isLoading]);
-
-  const handleDeleteAll = useCallback(() => {
-    onDeleteAll?.();
-  }, [onDeleteAll]);
 
   const copyLogs = useCallback(() => {
     const text = formatDebugLog(result ?? null, logs, pageUrl ?? '');
@@ -192,10 +172,11 @@ export function FillBar({
         : 'idle';
 
   return (
-    <div className="border-t border-border bg-[oklch(0.87_0.025_70)] dark:bg-[oklch(0.24_0.012_70)] relative z-20">
+    <div className="relative z-20">
       <AnimatePresence>
         {expanded && result && (
           <motion.div
+            id="mira-fill-log"
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: '40vh', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
@@ -287,36 +268,45 @@ export function FillBar({
         )}
       </AnimatePresence>
 
-      <div className={cn('px-5 py-4', expanded && 'border-t border-foreground/10')}>
+      <div className={cn('px-5 pt-4', expanded && 'border-t border-foreground/10')}>
         {result && !isLoading && (
-          <div className="flex justify-between items-center mb-3">
-            <span
-              className="text-[10px] uppercase tracking-widest font-medium text-foreground/60"
-              role="status"
-            >
-              {resultColor === 'green'
-                ? 'Fill Complete'
-                : resultColor === 'yellow'
-                  ? 'Partially Filled'
-                  : 'Fill Issues'}
-            </span>
+          <button
+            type="button"
+            onClick={() => setExpanded(!expanded)}
+            aria-expanded={expanded}
+            aria-controls="mira-fill-log"
+            className="block w-full text-left mb-3 -mx-1 px-1 py-0.5 rounded hover:bg-foreground/5 transition-colors cursor-pointer"
+          >
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-[10px] uppercase tracking-widest font-medium text-foreground/60">
+                {resultColor === 'green'
+                  ? 'Fill Complete'
+                  : resultColor === 'yellow'
+                    ? 'Partially Filled'
+                    : 'Fill Issues'}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <motion.span
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-sm font-medium tracking-tight text-foreground/80"
+                >
+                  {result.filled}
+                  <span className="text-foreground/35">/{result.total}</span>
+                </motion.span>
+                <motion.span
+                  animate={{ rotate: expanded ? 180 : 0 }}
+                  transition={{ duration: 0.2, ease }}
+                  className="text-foreground/40"
+                  aria-hidden
+                >
+                  <ChevronDown size={14} />
+                </motion.span>
+              </span>
+            </div>
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="text-sm font-medium tracking-tight text-foreground/80"
-            >
-              {result.filled}
-              <span className="text-foreground/35">/{result.total}</span>
-            </motion.div>
-          </div>
-        )}
-
-        <AnimatePresence>
-          {result && !isLoading && (
-            <motion.div
-              initial={{ height: 0, opacity: 0, marginBottom: 0 }}
-              animate={{ height: 4, opacity: 1, marginBottom: 12 }}
-              exit={{ height: 0, opacity: 0, marginBottom: 0 }}
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 4, opacity: 1 }}
               transition={{ duration: 0.3, ease }}
               className="flex gap-0.5 rounded-full overflow-hidden bg-foreground/10"
             >
@@ -344,6 +334,33 @@ export function FillBar({
                   className="h-full rounded-full bg-yellow-500/60"
                 />
               )}
+            </motion.div>
+          </button>
+        )}
+
+        <AnimatePresence>
+          {showFirstFillBanner && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.15 }}
+              className="overflow-hidden mb-3"
+            >
+              <div className="flex items-center justify-between gap-2 p-2 rounded-md bg-primary/5 text-[11px]">
+                <span className="text-foreground/60">
+                  <Check size={11} className="inline -mt-0.5 mr-1 text-primary" />
+                  <span className="text-foreground font-medium">First fill done.</span>
+                  <span className="ml-1">Mira keeps everything local — keep filling.</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={dismissFirstFillBanner}
+                  className="shrink-0 text-foreground/30 hover:text-foreground/60 cursor-pointer"
+                >
+                  <X size={12} />
+                </button>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -508,140 +525,8 @@ export function FillBar({
             </AnimatePresence>
           </div>
         </button>
-
-        <div className="mt-3 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            {result && (
-              <button
-                type="button"
-                onClick={() => setExpanded(!expanded)}
-                className="text-[10px] uppercase tracking-widest font-medium text-foreground/50 hover:text-foreground/70 transition-colors cursor-pointer"
-              >
-                {expanded ? 'Hide Log' : 'View Log'}
-              </button>
-            )}
-            <span className="text-[10px] uppercase tracking-widest font-medium text-foreground/30 leading-none">
-              v{chrome.runtime.getManifest().version}
-            </span>
-          </div>
-          <div className="flex items-center gap-0.5">
-            <IconButton label="Rate this extension" onClick={handleRate} icon={Star} />
-            <IconButton
-              label="Changelog"
-              onClick={handleChangelog}
-              icon={FileText}
-              highlight={showChangelogBanner}
-            />
-            <IconButton
-              label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
-              onClick={toggleTheme}
-              icon={theme === 'light' ? Moon : Sun}
-            />
-            <IconButton
-              label="Settings"
-              onClick={() => setShowSettings(true)}
-              icon={SettingsIcon}
-            />
-          </div>
-        </div>
       </div>
-
-      <SettingsModal
-        open={showSettings}
-        onClose={() => setShowSettings(false)}
-        onClearAnswerBank={onClearAnswerBank}
-        onDeleteAllData={handleDeleteAll}
-      />
-
-      {/* Changelog modal */}
-      <AnimatePresence>
-        {showChangelogModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-            onClick={() => setShowChangelogModal(false)}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 8 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 8 }}
-              transition={{ duration: 0.15 }}
-              className="bg-popover border border-border rounded-lg p-5 mx-4 w-full max-w-[320px] shadow-md"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-start gap-3 mb-4">
-                <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 shrink-0">
-                  <FileText size={16} className="text-primary" />
-                </div>
-                <h3 className="text-sm font-medium text-foreground pt-1">Changelog</h3>
-              </div>
-              <div className="space-y-3 max-h-[50vh] overflow-y-auto">
-                {Object.entries(CHANGELOG)
-                  .sort(([a], [b]) => b.localeCompare(a, undefined, { numeric: true }))
-                  .map(([version, entries]) => (
-                    <div key={version}>
-                      <span className="text-[10px] font-semibold uppercase tracking-widest text-foreground/50">
-                        v{version}
-                      </span>
-                      <ul className="mt-1 space-y-0.5">
-                        {entries.map((entry, i) => (
-                          <li
-                            key={i}
-                            className="text-[11px] text-foreground/70 pl-3 relative before:content-[''] before:absolute before:left-0 before:top-[7px] before:w-1 before:h-1 before:rounded-full before:bg-foreground/20"
-                          >
-                            {entry}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
-              </div>
-              <div className="flex justify-end mt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowChangelogModal(false)}
-                  className="h-8 px-3 rounded-lg text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer"
-                >
-                  Close
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
-  );
-}
-
-function IconButton({
-  icon: Icon,
-  label,
-  onClick,
-  highlight,
-}: {
-  icon: React.ElementType;
-  label: string;
-  onClick: () => void;
-  highlight?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      onClick={onClick}
-      className={cn(
-        'flex items-center justify-center w-7 h-7 rounded-md transition-colors cursor-pointer',
-        highlight
-          ? 'text-green-600 hover:bg-green-600/10'
-          : 'text-muted-foreground hover:text-foreground hover:bg-accent',
-      )}
-    >
-      <Icon size={13} />
-    </button>
   );
 }
 

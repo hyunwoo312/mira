@@ -2,7 +2,113 @@
 
 This document provides context for Chrome Web Store reviewers on Mira's permissions, architecture, and security posture.
 
-## Permissions Justification
+The first section ("Submission Form — Ready-to-Paste") contains the exact
+text intended for each field of the CWS dashboard's submission form. The
+second section onward is the deeper engineering rationale for reviewers
+who want detail.
+
+---
+
+## Submission Form — Ready-to-Paste
+
+### Single-purpose statement
+
+Mira is a job-application auto-fill tool. It stores a profile you build
+yourself and uses it to fill application forms on supported career sites
+(Greenhouse, Lever, Ashby, Workday, iCIMS) when you explicitly trigger a
+fill. On first install it opens a guided walkthrough with a sample
+profile so you can try the auto-fill once before building your own. It
+does nothing else.
+
+### Are you using remote code?
+
+**No.** All JavaScript and WebAssembly is bundled inside the extension
+package. No code is fetched from external servers at runtime. The ML model
+file (`model_quantized.onnx`) and ONNX Runtime WASM binaries ship with the
+extension and are loaded from `chrome.runtime.getURL` paths only.
+
+### Permission justifications (per-permission, ≤1000 chars each)
+
+**`activeTab`** — Required to identify the user's currently active tab so
+the fill command targets the form they're viewing. Used in the side panel,
+context menu, and keyboard-shortcut handlers.
+
+**`tabs`** — Used to read the active tab's URL (to detect supported ATS
+platforms and onboarding state) and to open the onboarding tab on first
+install or when the user replays the walkthrough from Settings. No tab
+content is read from this permission alone.
+
+**`sidePanel`** — Mira's primary UI is a Chrome side panel where the user
+edits their profile, manages presets, and triggers fills. The permission
+is required to register and open the side panel programmatically.
+
+**`storage`** — Stores the user's profile, presets, application history,
+and settings in `chrome.storage.local`. All data is local; nothing is
+synced or transmitted.
+
+**`unlimitedStorage`** — Required because uploaded resumes/cover letters
+are stored as base64 inside `chrome.storage.local`, which can exceed the
+default 5 MB quota when a user keeps multiple files across multiple
+profile presets.
+
+**`offscreen`** — Chrome MV3 service workers cannot execute WebAssembly.
+The offscreen document hosts the ONNX Runtime session for on-device ML
+inference. It is created lazily on the first fill request and destroyed
+after 5 minutes of inactivity to free WASM memory.
+
+**`scripting`** — Content scripts are NOT statically injected. They use
+runtime registration and are programmatically injected via
+`chrome.scripting.executeScript` only when the user triggers a fill.
+This is the sole injection mechanism. `allFrames: true` is needed because
+ATS platforms (notably Workday and embedded Greenhouse forms) use
+nested iframes.
+
+**`webNavigation`** — Used to detect when iframes finish loading on a
+target page so the fill pipeline can wait for embedded ATS forms (e.g.,
+Greenhouse iframes embedded on company career pages) before scanning.
+No browsing history is read or stored.
+
+**`contextMenus`** — Registers the right-click "Mira: Auto-fill" menu
+item so users can trigger filling without opening the side panel. If the
+user has multiple profile presets, sub-items appear for each preset.
+
+**`alarms`** — Manages the ML idle timeout. Five minutes after the last
+fill, an alarm fires and unloads the ONNX Runtime session to release WASM
+memory. `chrome.alarms` is required (rather than `setTimeout`) because
+service-worker timers do not survive worker sleep.
+
+### Host permission `<all_urls>` justification
+
+Job application forms appear on tens of thousands of unique employer
+domains, plus ATS-hosted subdomains (`*.greenhouse.io`, `*.ashbyhq.com`,
+`*.lever.co`, `*.myworkday.com`, `*.icims.com`). There is no fixed URL
+list to declare — career portals are commonly embedded as iframes on
+arbitrary company domains. The content script does NOT auto-run on any
+page; it is injected programmatically only when the user explicitly
+triggers a fill via the side panel button, context menu, or keyboard
+shortcut. No background scanning, no passive data collection.
+
+### Privacy practices disclosure (data usage)
+
+Mira does NOT collect, transmit, sell, or share any user data. All of
+the following stays exclusively in `chrome.storage.local` on the user's
+device:
+
+- Personally identifiable information (name, email, address, phone)
+- Authentication / sign-in info: not collected
+- Financial / payment info: not collected
+- Health info: not collected
+- Web history: not collected
+- User activity / clicks / keystrokes: not collected
+- Website content: not collected
+
+The extension uses the user's locally stored profile only to fill form
+fields when the user explicitly triggers a fill. No analytics, no
+telemetry, no remote logging.
+
+---
+
+## Detailed Permissions Justification (engineering rationale)
 
 ### Host Permissions: `<all_urls>`
 
