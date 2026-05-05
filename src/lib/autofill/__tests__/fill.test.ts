@@ -430,23 +430,6 @@ describe('fillRadioGroup', () => {
     expect(result.status).toBe('filled');
     expect(elements[1]!.checked).toBe(true);
   });
-
-  it('should not match positive concept to labels containing negation', async () => {
-    // "Yes, I have not been convicted" starts with "yes" but contains "not"
-    // So concept match for "Yes" should skip it if the logic filters negation
-    const { elements, labels } = createRadioGroup('conviction', [
-      'Yes, I have not been convicted',
-      'No, I have been convicted',
-    ]);
-
-    // "Yes" concept match: first option starts with "yes" but contains "not", so it's skipped
-    // Falls through to no match via concept, but fuzzy match may still catch "Yes" prefix
-    const result = await fillRadioGroup(elements, labels, 'Yes');
-
-    // The fuzzy matcher may match on the "Yes" prefix in the label
-    // The key behavior is it doesn't crash and returns a valid FillOutcome
-    expect(result).toHaveProperty('status');
-  });
 });
 
 // ── fillCheckboxGroup ──

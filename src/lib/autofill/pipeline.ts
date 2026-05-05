@@ -7,10 +7,12 @@ import type {
   WidgetType,
 } from './types';
 import type { MLMatchAnswersResponse } from '@/lib/ml/types';
-import type { AnswerEntry } from '@/lib/schema';
+import type { AnswerEntry, Profile } from '@/lib/schema';
 import { scanPage, detectATS } from './scanners/index';
 import { classifyFields } from './classify/index';
+import { looksLikeCountryList } from './classify/options';
 import { fillField as fillFieldByWidget } from './fillers/index';
+import { resolveHasDegreeIn } from './profile-map';
 
 import { sleep } from './fillers/shared';
 
@@ -20,6 +22,7 @@ const RESCAN_DEBOUNCE_MS = 150; // Debounce MutationObserver events before proce
 const RESCAN_INITIAL_WAIT_MS = 500; // Initial wait for late-appearing fields
 const RESCAN_SETTLE_MS = 300; // Settle time: no mutations for this long = done
 const RESCAN_MAX_WAIT_MS = 3000; // Max time to watch for late fields (includes ML inference time)
+const RESCAN_HARD_CAP_MS = 10000; // Absolute ceiling — bail even if processing is wedged
 
 //  Answer Bank
 
@@ -295,9 +298,13 @@ const SKIP_LABEL_PATTERNS = [
   /^if\s+(you\s+)?select|please\s+(specify|describe|explain|elaborate)/i,
 ];
 
+/** ML labels with no fillMap counterpart — always skip rather than rely on key absence. */
+const NEVER_FILL_CATEGORIES = new Set(['stackoverflow']);
+
 /** Check if a classified field should be skipped. */
 function shouldSkipField(field: ScanResult, fillMap: Record<string, string>): boolean {
   if (field.category === '__skip__' || field.category === 'customQuestion') return true;
+  if (field.category && NEVER_FILL_CATEGORIES.has(field.category)) return true;
   if (SKIP_LABEL_PATTERNS.some((p) => p.test(field.label))) return true;
   if (
     field.category === 'veteranStatus' &&
@@ -323,6 +330,7 @@ function watchForLateFields(
   startTime: number,
   classificationCache: WeakMap<HTMLElement, CachedClassification>,
   mlDisabled: boolean,
+  profile: Profile | undefined,
 ): Promise<{ filled: number; logs: FieldResult[] }> {
   return new Promise((resolve) => {
     let filled = 0;
@@ -356,7 +364,7 @@ function watchForLateFields(
           if (field.widgetType === 'file-upload') continue;
           if (shouldSkipField(field, fillMap)) continue;
 
-          const value = fillMap[field.category];
+          const value = resolveDynamicValue(field, profile) || fillMap[field.category];
           if (!value) continue;
 
           const outcome = await fillField(field, value, fillMap);
@@ -394,12 +402,22 @@ function watchForLateFields(
     }, RESCAN_INITIAL_WAIT_MS);
     const checkFinish = () => {
       if (settled) return;
+      // Hard cap — break out even if processing got wedged on an ML hang or
+      // a runaway page mutating in a loop. Without this, the !processing guard
+      // below could keep us stuck forever.
+      if (Date.now() - startTime >= RESCAN_HARD_CAP_MS) {
+        finish();
+        return;
+      }
       // Don't settle while ML classification is still processing
       if (processing) {
         setTimeout(checkFinish, RESCAN_SETTLE_MS);
         return;
       }
-      if (Date.now() - lastMutationTime < RESCAN_SETTLE_MS && Date.now() - startTime < 10000) {
+      if (
+        Date.now() - lastMutationTime < RESCAN_SETTLE_MS &&
+        Date.now() - startTime < RESCAN_HARD_CAP_MS
+      ) {
         setTimeout(checkFinish, RESCAN_SETTLE_MS);
       } else {
         processNewFields().finally(finish);
@@ -413,12 +431,31 @@ function watchForLateFields(
 
 //  Fill Phase Helper
 
+/** Per-question resolver for categories whose value depends on the label. */
+function resolveDynamicValue(field: ScanResult, profile: Profile | undefined): string {
+  if (!profile || !field.category) return '';
+  if (field.category === 'hasDegreeIn') return resolveHasDegreeIn(field.label, profile);
+  // "Are you authorized to work in [country]?" with country-name options:
+  // ML correctly routes to workAuth, but emitting "Yes" never matches a
+  // country-named option. Detect the option-shape and emit the user's country
+  // so the country-alias matcher in the filler picks the right option.
+  if (
+    field.category === 'workAuth' &&
+    field.groupLabels &&
+    looksLikeCountryList(field.groupLabels)
+  ) {
+    return profile.country ?? '';
+  }
+  return '';
+}
+
 async function fillBucket(
   bucket: ScanResult[],
   fillMap: Record<string, string>,
   logs: FieldResult[],
   signal?: AbortSignal,
   fillDelay = FILL_DELAY_MS,
+  profile?: Profile,
 ): Promise<void> {
   for (const field of bucket) {
     if (shouldAbort(signal)) break;
@@ -451,7 +488,7 @@ async function fillBucket(
       continue;
     }
 
-    const value = fillMap[field.category!];
+    const value = resolveDynamicValue(field, profile) || fillMap[field.category!];
     if (!value) {
       logs.push({
         field: truncateLabel(field.label),
@@ -514,6 +551,9 @@ const FILE_WIDGETS = new Set<WidgetType>(['file-upload']);
 
 export interface FillOptions {
   mlDisabled?: boolean;
+  /** Profile ref for per-question dynamic resolvers (`hasDegreeIn`).
+   * When omitted, dynamic categories fall through to no-value. */
+  profile?: Profile;
 }
 
 interface CachedClassification {
@@ -616,20 +656,20 @@ export async function fillPage(
   );
   const fileFields = classified.filter((f) => FILE_WIDGETS.has(f.widgetType));
 
-  await fillBucket(textFields, fillMap, logs, signal);
+  await fillBucket(textFields, fillMap, logs, signal, FILL_DELAY_MS, opts.profile);
 
   if (!shouldAbort(signal)) {
-    await fillBucket(selectFields, fillMap, logs, signal);
+    await fillBucket(selectFields, fillMap, logs, signal, FILL_DELAY_MS, opts.profile);
   }
 
   if (!shouldAbort(signal)) {
-    await fillBucket(groupFields, fillMap, logs, signal);
+    await fillBucket(groupFields, fillMap, logs, signal, FILL_DELAY_MS, opts.profile);
   }
 
   // ── Phase C2: Location dropdowns (API had time to load during A-C) ──
   if (!shouldAbort(signal) && locationFields.length > 0) {
     await sleep(REACT_SETTLE_MS);
-    await fillBucket(locationFields, fillMap, logs, signal);
+    await fillBucket(locationFields, fillMap, logs, signal, FILL_DELAY_MS, opts.profile);
   }
 
   // ── Phase C3: File uploads last — iCIMS etc. auto-submit the form on
@@ -637,7 +677,7 @@ export async function fillPage(
   // fills. Running files after everything else means we only lose the
   // answer-bank / rescan phases if navigation happens.
   if (!shouldAbort(signal) && fileFields.length > 0) {
-    await fillBucket(fileFields, fillMap, logs, signal);
+    await fillBucket(fileFields, fillMap, logs, signal, FILL_DELAY_MS, opts.profile);
   }
 
   // ── Phase D: Answer bank for unmatched fields ──
@@ -698,7 +738,7 @@ export async function fillPage(
       // causing dedup to miss them. Skip them in rescan entirely.
       if (field.widgetType === 'file-upload') continue;
       if (shouldSkipField(field, fillMap)) continue;
-      const value = fillMap[field.category];
+      const value = resolveDynamicValue(field, opts.profile) || fillMap[field.category];
       if (!value) continue;
       if (seenKeys.has(fieldKey(field))) continue;
 
@@ -723,6 +763,7 @@ export async function fillPage(
       startTime,
       classificationCache,
       opts.mlDisabled === true,
+      opts.profile,
     );
     logs.push(...rescanResult.logs);
   }

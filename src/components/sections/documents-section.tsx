@@ -81,9 +81,29 @@ const CATEGORIES: { value: Category; label: string }[] = [
   { value: 'cover_letter', label: 'Cover Letter' },
 ];
 
-export function DocumentsSection({ presetId }: { presetId?: string }) {
+export function DocumentsSection({
+  presetId,
+  onResumePdf,
+}: {
+  presetId?: string;
+  /** When provided, dropping a resume PDF here triggers parsing instead of an
+   * immediate attach. The parse-review flow handles attachment on commit. */
+  onResumePdf?: (file: File) => void;
+}) {
   const { addFile, removeFile, setActive, getByCategory, error, clearError } = useFiles(presetId);
   const [activeCategory, setActiveCategory] = useState<Category>('resume');
+
+  const handleFileDrop = (file: File) => {
+    if (
+      onResumePdf &&
+      activeCategory === 'resume' &&
+      (file.type === 'application/pdf' || /\.pdf$/i.test(file.name))
+    ) {
+      onResumePdf(file);
+      return;
+    }
+    void addFile(file, activeCategory);
+  };
 
   const resumeFiles = getByCategory('resume');
   const coverFiles = getByCategory('cover_letter');
@@ -142,10 +162,15 @@ export function DocumentsSection({ presetId }: { presetId?: string }) {
         </div>
 
         <Dropzone
-          onFileSelect={(file) => addFile(file, activeCategory)}
+          onFileSelect={handleFileDrop}
           label={`Drop your ${activeCategory === 'resume' ? 'resume' : 'cover letter'} here`}
           sublabel="PDF, DOCX up to 5MB"
         />
+        {activeCategory === 'resume' && onResumePdf && (
+          <p className="text-[10px] text-muted-foreground/60 leading-relaxed">
+            Drop a PDF and Mira can parse it to pre-fill your profile. DOCX files attach as-is.
+          </p>
+        )}
       </div>
 
       {allFiles.length > 0 && (

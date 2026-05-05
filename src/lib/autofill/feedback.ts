@@ -23,16 +23,3 @@ export async function saveFeedback(entry: FeedbackEntry): Promise<void> {
     // Silently fail — feedback is non-critical
   }
 }
-
-export async function loadFeedback(): Promise<FeedbackEntry[]> {
-  try {
-    const result = await chrome.storage.local.get(FEEDBACK_KEY);
-    return Array.isArray(result[FEEDBACK_KEY]) ? result[FEEDBACK_KEY] : [];
-  } catch {
-    return [];
-  }
-}
-
-export async function clearFeedback(): Promise<void> {
-  await chrome.storage.local.remove(FEEDBACK_KEY);
-}

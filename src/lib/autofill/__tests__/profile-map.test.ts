@@ -1,4 +1,4 @@
-import { profileToFillMap } from '../profile-map';
+import { profileToFillMap, resolveHasDegreeIn } from '../profile-map';
 import { DEFAULT_PROFILE } from '@/lib/schema';
 import type { Profile } from '@/lib/schema';
 
@@ -58,6 +58,162 @@ describe('profileToFillMap', () => {
       expect(map.linkedin).toBe('https://linkedin.com/in/jane');
       expect(map.github).toBe('https://github.com/jane');
       expect(map.portfolio).toBe('https://jane.dev');
+    });
+
+    it('should join populated profile links into profileLinks (newline)', () => {
+      const map = profileToFillMap(
+        makeProfile({
+          linkedin: 'https://linkedin.com/in/jane',
+          github: 'https://github.com/jane',
+          portfolio: 'https://jane.dev',
+          twitter: '',
+        }),
+      );
+      const links = map.profileLinks?.split('\n') ?? [];
+      expect(links).toContain('https://linkedin.com/in/jane');
+      expect(links).toContain('https://github.com/jane');
+      expect(links).toContain('https://jane.dev');
+      expect(links).toHaveLength(3);
+    });
+
+    it('should drop profileLinks when no link fields are set', () => {
+      const map = profileToFillMap(
+        makeProfile({
+          linkedin: '',
+          github: '',
+          portfolio: '',
+          twitter: '',
+        }),
+      );
+      expect(map.profileLinks).toBeUndefined();
+    });
+
+    it('should never emit a stackoverflow value (no profile field)', () => {
+      const map = profileToFillMap(makeProfile({}));
+      expect(map.stackoverflow).toBeUndefined();
+    });
+  });
+
+  // ── hasDegreeIn dynamic resolver ──
+  describe('resolveHasDegreeIn', () => {
+    const csBachelor = makeProfile({
+      education: [
+        {
+          school: 'Penn State',
+          degree: "Bachelor's Degree",
+          fieldOfStudy: 'Computer Science',
+          minor: '',
+          gpa: '',
+        },
+      ],
+    });
+
+    it('returns "Yes" for matching degree + field', () => {
+      expect(resolveHasDegreeIn("Do you have a Bachelor's in Computer Science?", csBachelor)).toBe(
+        'Yes',
+      );
+    });
+
+    it('returns "Yes" when user holds a higher degree (Master\'s satisfies Bachelor\'s)', () => {
+      const csMaster = makeProfile({
+        education: [
+          {
+            school: 'MIT',
+            degree: "Master's",
+            fieldOfStudy: 'Computer Science',
+            minor: '',
+            gpa: '',
+          },
+        ],
+      });
+      expect(resolveHasDegreeIn("Do you have a Bachelor's in Computer Science?", csMaster)).toBe(
+        'Yes',
+      );
+    });
+
+    it('returns "No" when degree level is sufficient but field differs', () => {
+      expect(
+        resolveHasDegreeIn("Do you have a Bachelor's in Mechanical Engineering?", csBachelor),
+      ).toBe('No');
+    });
+
+    it('returns "No" when user holds lower degree than asked', () => {
+      const associate = makeProfile({
+        education: [
+          {
+            school: 'CC',
+            degree: 'Associate',
+            fieldOfStudy: 'Computer Science',
+            minor: '',
+            gpa: '',
+          },
+        ],
+      });
+      expect(resolveHasDegreeIn('Do you have a PhD in Computer Science?', associate)).toBe('No');
+    });
+
+    it('handles "or related field" allow-list phrasing', () => {
+      expect(
+        resolveHasDegreeIn(
+          "Do you have a Bachelor's in Computer Science or related field?",
+          csBachelor,
+        ),
+      ).toBe('Yes');
+    });
+
+    it('handles "CS" alias in the question', () => {
+      expect(resolveHasDegreeIn('Do you have a Bachelor in CS?', csBachelor)).toBe('Yes');
+    });
+
+    it('returns "" (no answer) for non-degree questions', () => {
+      expect(resolveHasDegreeIn('Are you authorized to work in the US?', csBachelor)).toBe('');
+      expect(resolveHasDegreeIn('What is your phone number?', csBachelor)).toBe('');
+    });
+
+    it('returns "" (skip) when user has no education entries', () => {
+      const empty = makeProfile({ education: [] });
+      expect(resolveHasDegreeIn("Do you have a Bachelor's in Computer Science?", empty)).toBe('');
+    });
+
+    it('handles bare "degree" without explicit level (treats as bachelor-or-better)', () => {
+      expect(resolveHasDegreeIn('Do you have a degree in Computer Science?', csBachelor)).toBe(
+        'Yes',
+      );
+    });
+
+    // CommerceIQ shipped the label as "...Computer Science?*" with a
+    // required-field asterisk. The original parser only allowed an optional
+    // trailing "?", and the asterisk forced the non-greedy capture to
+    // absorb "?*" into the field token — accidentally still produced the
+    // right answer via downstream tokenization, but a more decorated
+    // suffix ("?✱") would have broken cleanly. Strip trailing decorators
+    // before parsing so it's always reliable.
+    it.each([
+      ["Do you have a Bachelor's in Computer Science?*", 'Yes'],
+      ["Do you have a Bachelor's in Computer Science? ✱", 'Yes'],
+      ["Do you have a Bachelor's in Computer Science?  ", 'Yes'],
+    ])('handles trailing decorators: "%s"', (label, expected) => {
+      expect(resolveHasDegreeIn(label, csBachelor)).toBe(expected);
+    });
+
+    // Strict field matching — Data Science is not a subset of Computer
+    // Science (and vice versa). A user with DS gets "No" on a CS question.
+    // Forms that want lenience should use "or related field" phrasing.
+    it('returns "No" for related-but-distinct fields (DS vs CS)', () => {
+      const dsBachelor = makeProfile({
+        education: [
+          {
+            school: 'Penn State',
+            degree: "Bachelor's Degree",
+            fieldOfStudy: 'Data Science',
+            minor: '',
+            gpa: '',
+          },
+        ],
+      });
+      expect(resolveHasDegreeIn("Do you have a Bachelor's in Computer Science?", dsBachelor)).toBe(
+        'No',
+      );
     });
   });
 
@@ -317,11 +473,6 @@ describe('profileToFillMap', () => {
       expect(map.isHispanic).toBe('Yes');
     });
 
-    it('should return Yes when race contains Latino (case insensitive)', () => {
-      const map = profileToFillMap(makeProfile({ race: 3 }));
-      expect(map.isHispanic).toBe('Yes');
-    });
-
     it('should return No for non-Hispanic race', () => {
       const map = profileToFillMap(makeProfile({ race: 5 }));
       expect(map.isHispanic).toBe('No');
@@ -346,11 +497,6 @@ describe('profileToFillMap', () => {
       expect(map.lgbtq).toBe('No');
     });
 
-    it('should return No for heterosexual sexual orientation', () => {
-      const map = profileToFillMap(makeProfile({ sexualOrientation: 0 }));
-      expect(map.lgbtq).toBe('No');
-    });
-
     it('should return No for prefer not to say', () => {
       const map = profileToFillMap(makeProfile({ sexualOrientation: 7 }));
       expect(map.lgbtq).toBe('No');
@@ -362,11 +508,6 @@ describe('profileToFillMap', () => {
     });
 
     it('should return Yes for non-binary gender', () => {
-      const map = profileToFillMap(makeProfile({ gender: 2 }));
-      expect(map.lgbtq).toBe('Yes');
-    });
-
-    it('should return Yes for genderqueer gender', () => {
       const map = profileToFillMap(makeProfile({ gender: 2 }));
       expect(map.lgbtq).toBe('Yes');
     });
@@ -398,12 +539,6 @@ describe('profileToFillMap', () => {
     });
 
     it('should not include Person with disability when disabilityStatus is No', () => {
-      const map = profileToFillMap(makeProfile({ disabilityStatus: 1 }));
-      expect(map.communities).not.toContain('Person with disability');
-    });
-
-    it('should not include Person with disability when disabilityStatus contains Yes and No', () => {
-      // "No, I do not..." should not match since /no/i triggers
       const map = profileToFillMap(makeProfile({ disabilityStatus: 1 }));
       expect(map.communities).not.toContain('Person with disability');
     });

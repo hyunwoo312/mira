@@ -39,10 +39,29 @@ export function useFiles(presetId?: string) {
 
   useEffect(() => {
     setIsLoaded(false); // eslint-disable-line react-hooks/set-state-in-effect -- intentional reset on preset switch
+    let cancelled = false;
     loadFiles(presetId).then((f) => {
+      if (cancelled) return;
       setFiles(f);
       setIsLoaded(true);
     });
+
+    // Keep multiple useFiles consumers in sync — when one instance writes files
+    // for this preset, others on the same page learn about it via the storage
+    // change event and reload.
+    const storageKey = presetId ? `mira_files_${presetId}` : 'mira_files';
+    const onChanged = (changes: Record<string, chrome.storage.StorageChange>) => {
+      if (storageKey in changes) {
+        void loadFiles(presetId).then((f) => {
+          if (!cancelled) setFiles(f);
+        });
+      }
+    };
+    chrome.storage.local.onChanged.addListener(onChanged);
+    return () => {
+      cancelled = true;
+      chrome.storage.local.onChanged.removeListener(onChanged);
+    };
   }, [presetId]);
 
   useEffect(() => {
@@ -60,14 +79,14 @@ export function useFiles(presetId?: string) {
   );
 
   const addFile = useCallback(
-    async (file: File, category: StoredFile['category']) => {
+    async (file: File, category: StoredFile['category']): Promise<StoredFile | null> => {
       clearError();
 
       if (file.size > MAX_FILE_SIZE) {
         setTimedError(
           `File exceeds ${formatFileSize(MAX_FILE_SIZE)} limit (${formatFileSize(file.size)})`,
         );
-        return;
+        return null;
       }
 
       const currentUsage = estimateStorageBytes(files);
@@ -75,7 +94,7 @@ export function useFiles(presetId?: string) {
         setTimedError(
           `Storage quota exceeded. Using ${formatFileSize(currentUsage)} of ${formatFileSize(MAX_TOTAL_STORAGE)}. Free up space before uploading.`,
         );
-        return;
+        return null;
       }
 
       const data = await fileToBase64(file);
@@ -99,6 +118,7 @@ export function useFiles(presetId?: string) {
       }
 
       await persist(updated);
+      return newFile;
     },
     [files, persist, clearError, setTimedError],
   );

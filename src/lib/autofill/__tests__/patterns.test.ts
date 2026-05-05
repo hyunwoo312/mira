@@ -1,4 +1,4 @@
-import { classifyField } from '../classify/patterns';
+import { classifyField, detectMultiLinkPrompt } from '../classify/patterns';
 
 // ── Name fields ──
 
@@ -87,6 +87,13 @@ describe('address1', () => {
       expect(classifyField(label)).toBe('address1');
     },
   );
+
+  // Bare `street` substring used to fire on long-prose labels.
+  it('should NOT classify "Walk us through the impact of Wall Street on the global economy" as address1', () => {
+    expect(
+      classifyField('Walk us through the impact of Wall Street on the global economy'),
+    ).not.toBe('address1');
+  });
 });
 
 describe('address2', () => {
@@ -117,8 +124,22 @@ describe('state', () => {
 });
 
 describe('zipCode', () => {
-  it.each(['Zip Code', 'Zip', 'Postal Code', 'Postal'])('should classify "%s"', (label) => {
-    expect(classifyField(label)).toBe('zipCode');
+  it.each(['Zip Code', 'Zip', 'Postal Code', 'Postal', 'ZIP', 'Zipcode', 'Postcode'])(
+    'should classify "%s"',
+    (label) => {
+      expect(classifyField(label)).toBe('zipCode');
+    },
+  );
+
+  // Zip ATS embeds "Zip" as the company name inside long Q labels — bare
+  // substring matching used to stuff "77382" into the textarea answer.
+  it.each([
+    "What's got you looking for a new role right now and why are you interested in Zip specifically?",
+    'Why do you want to join Zip?',
+    "What excites you about Zip's mission?",
+    'Tell us about your experience with zip files',
+  ])('should NOT classify long-prompt mentioning Zip "%s" as zipCode', (label) => {
+    expect(classifyField(label)).not.toBe('zipCode');
   });
 });
 
@@ -197,6 +218,41 @@ describe('additional information', () => {
   );
 });
 
+// ── Background-check questions skip to prevent silent wrong-fill ──
+//
+// Without this, ML observed routing them to `relocate` (~73%), which would
+// emit a willingToRelocate-driven "No" for users with that flag false — a
+// wrong answer to a background-check question. See temp-fillside-notes.md.
+describe('background-check Yes/No questions', () => {
+  it.each([
+    'Are you willing to undergo a background check as part of our recruitment process, if required?',
+    'Are you willing to undergo a background check?',
+    'Background check authorization',
+    'Will you consent to a background check?',
+  ])('should classify "%s" as __skip__', (label) => {
+    expect(classifyField(label)).toBe('__skip__');
+  });
+});
+
+// ── relocationAssistance vs relocate disambiguation ──
+//
+// ML observed routing "Will you need relocation assistance..." to `relocate`
+// (~0.95-0.97) even after retrain because of class imbalance + shared
+// "relocation" lexeme. The heuristic fast-path makes this deterministic.
+describe('relocationAssistance', () => {
+  it.each([
+    "Will you need relocation assistance to work at this role's specified location?",
+    'Do you need relocation assistance?',
+    'Will you require relocation support?',
+    'Do you need a relocation package?',
+    'Relocation stipend',
+    'Are you requesting relocation reimbursement?',
+    'Need relocation allowance?',
+  ])('should classify "%s" as relocationAssistance', (label) => {
+    expect(classifyField(label)).toBe('relocationAssistance');
+  });
+});
+
 // ── Link fields ──
 
 describe('linkedin', () => {
@@ -208,6 +264,94 @@ describe('linkedin', () => {
 describe('github', () => {
   it.each(['GitHub', 'GitHub URL', 'GitHub Profile'])('should classify "%s"', (label) => {
     expect(classifyField(label)).toBe('github');
+  });
+});
+
+// CommerceIQ shipped "Do you have a Bachelor's in Computer Science?" as
+// Yes/No → ML routed to customQuestion → no-value skip. The heuristic
+// captures the structural pattern; the dynamic resolver in profile-map
+// derives Yes/No from profile.education.
+describe('hasDegreeIn (degree-eligibility Yes/No questions)', () => {
+  it.each([
+    "Do you have a Bachelor's in Computer Science?",
+    'Do you have a Bachelor in Computer Science?',
+    "Do you have a Master's in Mechanical Engineering?",
+    'Do you have a PhD in Physics?',
+    'Do you hold a Bachelor of Science in Mathematics?',
+    'Have you completed a Bachelor in Computer Science?',
+    'Do you have a degree in Computer Science?',
+    "Do you have a Bachelor's degree in Computer Science or related field?",
+    'Do you have an MBA in Finance?',
+  ])('should classify "%s" as hasDegreeIn', (label) => {
+    expect(classifyField(label)).toBe('hasDegreeIn');
+  });
+
+  // Don't catch "experience" / "skill" Yes/No — those route via existing flow.
+  it.each([
+    'Do you have experience in Computer Science?',
+    'Are you skilled in Computer Science?',
+    'Do you have any background in Computer Science?',
+  ])('should NOT classify experience-style "%s" as hasDegreeIn', (label) => {
+    expect(classifyField(label)).not.toBe('hasDegreeIn');
+  });
+});
+
+describe('profileLinks (multi-link enumeration)', () => {
+  // CommerceIQ shipped a textarea asking for "Github, Stackoverflow, or
+  // other technical profile" — single-link heuristics stuffed only one URL.
+  // Multi-link detection is now exposed via `detectMultiLinkPrompt` and
+  // applied in `classify/index.ts` only on textareas — Gallatin AI's
+  // single-line "Portfolio URL or GitHub URL" silent wrong-fill is the
+  // reason for the textarea-only gate. classifyField itself never returns
+  // profileLinks; the fallthrough to per-link heuristics (github wins
+  // first in pattern order) keeps single-line inputs with one valid URL.
+  it.each([
+    'Please provide your Github, Stackoverflow, or other technical profile.',
+    'Github / Stackoverflow / Portfolio',
+    'LinkedIn, GitHub, and Portfolio links',
+    'GitHub or Stackoverflow link',
+    'Stack Overflow / GitLab / Dribbble',
+    'Portfolio URL or GitHub URL',
+  ])('detectMultiLinkPrompt returns true for "%s"', (label) => {
+    expect(detectMultiLinkPrompt(label)).toBe(true);
+  });
+
+  it.each([
+    'GitHub',
+    'LinkedIn URL',
+    'Twitter',
+    'Portfolio website',
+    'Your GitHub or another GitHub', // repeated same platform
+    'Stack Overflow',
+  ])('detectMultiLinkPrompt returns false for "%s"', (label) => {
+    expect(detectMultiLinkPrompt(label)).toBe(false);
+  });
+
+  // classifyField itself never returns profileLinks — that's the textarea-
+  // gated path in classify/index.ts.
+  it('classifyField never returns profileLinks (textarea gate is in index.ts)', () => {
+    expect(classifyField('Github / Stackoverflow / Portfolio')).not.toBe('profileLinks');
+  });
+
+  // Single-link labels still route to their specific category.
+  it.each([
+    ['GitHub', 'github'],
+    ['LinkedIn URL', 'linkedin'],
+    ['Twitter', 'twitter'],
+    ['Portfolio website', 'portfolio'],
+  ])('classifyField routes single-link "%s" to %s', (label, expected) => {
+    expect(classifyField(label)).toBe(expected);
+  });
+
+  // For multi-link prompts on single-line inputs (e.g. "Portfolio URL or
+  // GitHub URL"), the per-link heuristic order picks one URL —
+  // github wins because it appears earlier in the pattern list.
+  it('routes "Portfolio URL or GitHub URL" to github via pattern order (single-line fallback)', () => {
+    expect(classifyField('Portfolio URL or GitHub URL')).toBe('github');
+  });
+
+  it('returns null for bare "Stack Overflow" (no profile field)', () => {
+    expect(classifyField('Stack Overflow')).toBeNull();
   });
 });
 
@@ -242,6 +386,19 @@ describe('company', () => {
     },
   );
 
+  // Hadrian Ashby shipped "Curent Company" (one-r typo). ML routed to
+  // customQuestion → skip no-value. Heuristic should tolerate the common
+  // single-edit variants for "current" and "employer".
+  it.each([
+    'Curent Company',
+    'Currrent Company',
+    'Curent Employer',
+    'Most Recent Employeer',
+    'Previous Employeer',
+  ])('should classify typo variant "%s" as company', (label) => {
+    expect(classifyField(label)).toBe('company');
+  });
+
   it.each(['May we contact your current employer?', 'Do you work for a competing employer?'])(
     'should NOT classify question "%s" as company',
     (label) => {
@@ -260,6 +417,14 @@ describe('school', () => {
   it.each(['School', 'University', 'College'])('should classify "%s"', (label) => {
     expect(classifyField(label)).toBe('school');
   });
+
+  // Bare `university|college` substring used to fire on long-prose labels.
+  it.each([
+    'Did you attend a university? If so, please describe your overall experience there.',
+    'Tell us how college shaped your career path so far in the long run.',
+  ])('should NOT classify long-prose mention "%s" as school', (label) => {
+    expect(classifyField(label)).not.toBe('school');
+  });
 });
 
 describe('degree', () => {
@@ -277,6 +442,24 @@ describe('location', () => {
       expect(classifyField(label)).toBe('location');
     },
   );
+
+  // Sesame Ashby shipped "Are you willing to work from the required location?"
+  // with Yes/No options. Bare-word `location` heuristic used to match and the
+  // filler stuffed the user's city into the Yes/No widget → loud
+  // no-option-match. These willingness/ability framings should fall through
+  // to ML (canWorkFromLocation).
+  it.each([
+    'Are you willing to work from the required location?',
+    'Are you able to work from this location?',
+    'Are you open to working from the stated location?',
+    'Open to working at our specified office location',
+  ])('should NOT classify willingness question "%s" as location', (label) => {
+    expect(classifyField(label)).not.toBe('location');
+  });
+
+  it('still classifies "Where are you located right now?" as location', () => {
+    expect(classifyField('Where are you located right now?')).toBe('location');
+  });
 });
 
 // ── isHispanic ──
@@ -290,6 +473,21 @@ describe('isHispanic', () => {
   );
 });
 
+describe('pronouns vs pronunciation', () => {
+  // Palantir Lever shipped a "Name Pronunciation | How do you pronounce
+  // your name?" plain-text input. The substring regex /pronoun/i used to
+  // match "pronounce" / "pronunciation" and stuff "He/Him" into the field.
+  // The word-boundary fix means this label falls through to ML / no-value.
+  it('does not classify "Pronunciation" as pronouns', () => {
+    expect(classifyField('Name Pronunciation | How do you pronounce your name?')).not.toBe(
+      'pronouns',
+    );
+  });
+  it('still classifies "Pronouns" as pronouns', () => {
+    expect(classifyField('Pronouns')).toBe('pronouns');
+  });
+});
+
 // ── Categories handled by heuristic patterns ──
 
 describe('heuristic-only categories', () => {
@@ -297,6 +495,7 @@ describe('heuristic-only categories', () => {
     ['Are you currently located in the US?', 'locatedInUS'],
     ['Have you worked at this company before?', 'workedHereBefore'],
     ['Pronouns', 'pronouns'],
+    ['What are your preferred pronouns?', 'pronouns'],
     ['Are you currently enrolled in a university?', 'currentlyEnrolled'],
     ['Are you interested in a full-time offer?', 'fullTimeInterest'],
     ['Does this position require ITAR compliance?', 'exportControl'],
@@ -313,9 +512,8 @@ describe('categories delegated to ML (should return null from patterns)', () => 
   it.each([
     'Will you now or in the future require visa sponsorship?',
     'Are you willing to relocate?',
-    'Will you need relocation assistance to work at this location?',
-    'Do you require relocation support?',
-    'Relocation package needed?',
+    // Relocation-assistance variants moved to the relocationAssistance heuristic
+    // block (ML routing was unreliable, silent wrong-fill risk).
     'Are you 18 years of age or older?',
     'What is your current age?',
     'Can we reach you via SMS?',

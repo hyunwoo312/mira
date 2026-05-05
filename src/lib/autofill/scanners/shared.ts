@@ -23,6 +23,31 @@ export function isVisible(el: HTMLElement): boolean {
   return true;
 }
 
+/**
+ * `querySelectorAll` that descends into every open shadow root reachable from
+ * `root`. ATSes occasionally encapsulate inputs in shadow DOM (some Workday
+ * skins, custom design systems) — a plain document.querySelectorAll misses them.
+ */
+export function deepQuerySelectorAll<T extends Element = Element>(
+  root: Document | ShadowRoot | Element,
+  selector: string,
+): T[] {
+  const out: T[] = [];
+  const visited = new WeakSet<ShadowRoot>();
+  const visit = (r: Document | ShadowRoot | Element) => {
+    out.push(...Array.from(r.querySelectorAll<T>(selector)));
+    for (const el of Array.from(r.querySelectorAll('*'))) {
+      const sr = (el as Element & { shadowRoot?: ShadowRoot | null }).shadowRoot;
+      if (sr && !visited.has(sr)) {
+        visited.add(sr);
+        visit(sr);
+      }
+    }
+  };
+  visit(root);
+  return out;
+}
+
 /** Get text content of a label, excluding any child form elements. */
 export function safeText(lbl: Element, formEl?: HTMLElement): string {
   if (!formEl || !lbl.contains(formEl)) return lbl.textContent?.trim() ?? '';
@@ -388,7 +413,7 @@ export function scanFieldsetGroups(
   groupedElements: Set<HTMLElement>,
   ats: ATSName,
 ): void {
-  const fieldsets = document.querySelectorAll('fieldset');
+  const fieldsets = deepQuerySelectorAll(document, 'fieldset');
   for (const fs of fieldsets) {
     const legend = fs.querySelector('legend');
     // Ashby fieldsets use <label> as the question heading instead of <legend>
@@ -469,7 +494,7 @@ export function scanCheckboxesByContentMatch(
 ): void {
   const optionToCategory = getOptionToCategory();
 
-  const allCheckboxes = document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
+  const allCheckboxes = deepQuerySelectorAll<HTMLInputElement>(document, 'input[type="checkbox"]');
   const ungroupedCbs: HTMLInputElement[] = [];
   for (const cb of allCheckboxes) {
     if (groupedElements.has(cb)) continue;
@@ -566,9 +591,9 @@ export function scanUngroupedByContainer(
   groupedElements: Set<HTMLElement>,
   ats: ATSName,
 ): void {
-  const allRadios = document.querySelectorAll<HTMLInputElement>('input[type="radio"]');
-  const allCheckboxes = document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
-  const ungroupedInputs = [...Array.from(allRadios), ...Array.from(allCheckboxes)];
+  const allRadios = deepQuerySelectorAll<HTMLInputElement>(document, 'input[type="radio"]');
+  const allCheckboxes = deepQuerySelectorAll<HTMLInputElement>(document, 'input[type="checkbox"]');
+  const ungroupedInputs = [...allRadios, ...allCheckboxes];
   const containerGroups = new Map<
     HTMLElement,
     { inputs: HTMLInputElement[]; type: 'radio' | 'checkbox' }
@@ -656,7 +681,7 @@ export function scanIndividualElements(
   groupedElements: Set<HTMLElement>,
   ats: ATSName,
 ): void {
-  const elements = document.querySelectorAll<HTMLElement>('input, select, textarea');
+  const elements = deepQuerySelectorAll<HTMLElement>(document, 'input, select, textarea');
   const radioGroups = new Map<string, { elements: HTMLInputElement[]; labels: string[] }>();
   const startIndex = results.length;
 

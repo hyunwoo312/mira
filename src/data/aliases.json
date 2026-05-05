@@ -60,7 +60,12 @@
     "West Virginia": ["WV"],
     "Wisconsin": ["WI"],
     "Wyoming": ["WY"],
-    "District of Columbia": ["DC", "D.C."]
+    "District of Columbia": ["DC", "D.C.", "Washington D.C.", "Washington DC"],
+    "Puerto Rico": ["PR", "P.R."],
+    "U.S. Virgin Islands": ["VI", "USVI", "Virgin Islands"],
+    "Guam": ["GU"],
+    "American Samoa": ["AS"],
+    "Northern Mariana Islands": ["MP", "CNMI"]
   },
   "degrees": {
     "High School": ["High School Diploma", "GED", "Secondary", "HS"],
@@ -317,5 +322,34 @@
     "Finance": ["Financial Engineering"],
     "Accounting": ["Accountancy"],
     "Marketing": ["Digital Marketing"]
+  },
+  "exportControl": {
+    "U.S. person": [
+      "US person",
+      "U.S. Person",
+      "United States citizen",
+      "U.S. citizen",
+      "US citizen",
+      "United States citizen or national",
+      "citizen or national",
+      "permanent resident",
+      "lawful permanent resident",
+      "lawfully admitted for permanent residence",
+      "Green Card",
+      "I am a U.S. person",
+      "admitted as a refugee",
+      "admitted as an asylee",
+      "national",
+      "I am a citizen",
+      "lawful resident"
+    ],
+    "Foreign person": [
+      "Foreign national",
+      "Non-U.S. person",
+      "Non US person",
+      "None of the above",
+      "I am a foreign person",
+      "Not a U.S. person"
+    ]
   }
 }

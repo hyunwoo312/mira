@@ -97,10 +97,10 @@ export function useFill() {
     };
   }, []);
 
-  const fill = useCallback(async () => {
+  const fill = useCallback(async (presetId?: string) => {
     setState({ isLoading: true, result: null, logs: [], pageUrl: '', error: null });
     try {
-      const response = await chrome.runtime.sendMessage({ type: 'TRIGGER_FILL' });
+      const response = await chrome.runtime.sendMessage({ type: 'TRIGGER_FILL', presetId });
       setState({
         isLoading: false,
         result: response?.result ?? null,

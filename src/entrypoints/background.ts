@@ -11,7 +11,17 @@ import { loadPresetStore } from '@/lib/storage';
 import { loadFiles } from '@/lib/file-storage';
 import { saveApplication, parsePageTitle } from '@/lib/application-store';
 import { loadSettings } from '@/lib/settings';
-import { ML_IDLE_TIMEOUT_MS, FILL_COUNT_KEY, CHANGELOG_KEY } from '@/lib/constants';
+import {
+  ML_IDLE_TIMEOUT_MS,
+  FILL_COUNT_KEY,
+  CHANGELOG_KEY,
+  ONBOARDING_SEEN_KEY,
+} from '@/lib/constants';
+import { openOnboardingTab, isOnboardingUrl } from '@/lib/onboarding';
+import { DEMO_PROFILE } from '@/lib/onboarding/demo-profile';
+
+const ONBOARDING_FILL_MESSAGE = 'MIRA_ONBOARDING_FILL';
+const DEMO_PRESET_ID = '__mira_demo__';
 
 const SALARY_KEYS = ['salaryMin', 'salaryMax', 'salaryRange'];
 const EEO_KEYS = [
@@ -27,6 +37,17 @@ const EEO_KEYS = [
 
 export default defineBackground(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+
+  // Only fire on first install — never re-open on update so existing users
+  // aren't surprised. Persisted flag guards against repeat firings if Chrome
+  // re-runs the listener in edge cases (corrupt SW restart, etc.).
+  chrome.runtime.onInstalled.addListener(async (details) => {
+    if (details.reason !== 'install') return;
+    const stored = await chrome.storage.local.get(ONBOARDING_SEEN_KEY);
+    if (stored[ONBOARDING_SEEN_KEY]) return;
+    await chrome.storage.local.set({ [ONBOARDING_SEEN_KEY]: true });
+    await openOnboardingTab();
+  });
 
   // ── State ──────────────────────────────────────────────────────────
   let offscreenReady = false;
@@ -600,6 +621,57 @@ export default defineBackground(() => {
       (async () => {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         const tabId = tab?.id;
+
+        // Onboarding tab routes through the page's own runtime listener —
+        // content scripts can't run on chrome-extension:// pages.
+        if (tabId && isOnboardingUrl(tab?.url)) {
+          let profile = DEMO_PROFILE;
+          if (message.presetId && message.presetId !== DEMO_PRESET_ID) {
+            const store = await loadPresetStore();
+            const preset = store.presets.find((p) => p.id === message.presetId);
+            if (preset) profile = preset.profile;
+          }
+          const overlayNotify = (msg: Record<string, unknown>) => {
+            chrome.tabs.sendMessage(tabId, msg).catch(() => {});
+          };
+          overlayNotify({ type: 'FILL_OVERLAY_SHOW', phase: 'filling' });
+          try {
+            const response = await chrome.tabs.sendMessage(tabId, {
+              type: ONBOARDING_FILL_MESSAGE,
+              profile,
+            });
+            const result = {
+              filled: response?.filled ?? 0,
+              failed: response?.failed ?? 0,
+              skipped: response?.skipped ?? 0,
+              total: (response?.filled ?? 0) + (response?.failed ?? 0) + (response?.skipped ?? 0),
+              durationMs: response?.durationMs ?? 0,
+              mlAvailable: true,
+              ats: 'demo',
+            };
+            overlayNotify({
+              type: 'FILL_OVERLAY_RESULT',
+              result,
+              logs: response?.logs ?? [],
+            });
+            sendResponse({
+              result,
+              logs: response?.logs ?? [],
+              pageUrl: tab?.url ?? '',
+              error: response?.error ?? null,
+            });
+          } catch (err) {
+            overlayNotify({ type: 'FILL_OVERLAY_DISMISS' });
+            sendResponse({
+              result: { filled: 0, failed: 0, skipped: 0, total: 0 },
+              logs: [],
+              pageUrl: tab?.url ?? '',
+              error: err instanceof Error ? err.message : 'Demo fill failed',
+            });
+          }
+          return;
+        }
+
         const settings = await loadSettings();
         const notify = (msg: Record<string, unknown>) => {
           if (!tabId) return;

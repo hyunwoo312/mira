@@ -21,20 +21,37 @@ import {
   LOCATION_API_RETRY_MS,
   PLACES_COLD_START_MS,
   LARGE_DROPDOWN_THRESHOLD,
+  REACT_SELECT_SLOW_RETRY_MS,
 } from './shared';
 
 /**
- * `exportControl`'s profile value ("U.S. person" / "Foreign person") doesn't
- * map cleanly to Yes/No option sets, and the OFAC Yes/No semantic is inverted
- * ("Yes" means the candidate IS a citizen of a sanctioned country). Rather
- * than let the ML option-scorer guess — which has picked the wrong answer on
- * Telnyx — skip the fill when the option set is Yes/No-only.
+ * Per-category Yes/No skip predicates. Turn silent wrong-fills into clean
+ * `no-value` skips when the profile value can't sensibly map to Yes/No.
+ * Add new categories here rather than chaining `if` checks at call sites.
  */
-function shouldSkipForExportControlMismatch(
+type YesNoSkipPredicate = (fieldLabel: string) => boolean;
+
+const US_RESIDENCY_INTENT_RE = /\b(?:US|U\.?S\.?A?|United\s+States|America(?:n)?)\b/i;
+
+const YES_NO_OPTION_GUARDS: Record<string, YesNoSkipPredicate> = {
+  // "U.S. person" / "Foreign person" never maps to Yes/No, and OFAC Yes/No
+  // semantic is inverted ("Yes" = sanctioned-country citizen).
+  exportControl: () => true,
+  // Skip unless label has explicit US-country wording — region-specific
+  // metros ("Greater NYC") would silently fill the wrong answer.
+  locatedInUS: (label) => !US_RESIDENCY_INTENT_RE.test(label),
+};
+
+export function shouldSkipYesNoForCategoryMismatch(
   category: string | undefined,
   options: string[],
+  fieldLabel?: string,
 ): boolean {
-  return category === 'exportControl' && isYesNoOnlyOptionSet(options);
+  if (!category) return false;
+  const predicate = YES_NO_OPTION_GUARDS[category];
+  if (!predicate) return false;
+  if (!isYesNoOnlyOptionSet(options)) return false;
+  return predicate(fieldLabel ?? '');
 }
 
 const STATE_ABBREVS: Record<string, string> = {
@@ -173,7 +190,7 @@ export async function fillNativeSelect(
   const meaningfulTexts = Array.from(el.options)
     .filter((o) => o.value !== '')
     .map((o) => o.text);
-  if (shouldSkipForExportControlMismatch(category, meaningfulTexts)) {
+  if (shouldSkipYesNoForCategoryMismatch(category, meaningfulTexts, fieldLabel)) {
     return { status: 'skipped', reason: 'no-value' };
   }
 
@@ -241,7 +258,7 @@ export async function fillReactSelect(
   const state = await bridgeGetSelectState(el);
   if (state && state.options.length > 0 && state.options.length <= LARGE_DROPDOWN_THRESHOLD) {
     const texts = state.options.map((o) => o.label);
-    if (shouldSkipForExportControlMismatch(category, texts)) {
+    if (shouldSkipYesNoForCategoryMismatch(category, texts, fieldLabel)) {
       return { status: 'skipped', reason: 'no-value' };
     }
     // Only use fast path if fuzzy match finds something (no ML fallback — avoid false positives)
@@ -282,6 +299,18 @@ export async function fillReactSelect(
     } else {
       await sleep(150);
       options = await waitForOptions(DROPDOWN_WAIT_FILTERED_MS);
+      // Slow-async react-selects can return options past the 400ms window.
+      if (options.length === 0) {
+        options = await waitForOptions(REACT_SELECT_SLOW_RETRY_MS);
+      }
+      // Creatable react-select fallback — Enter commits the typed value
+      // as a new option. If field stays empty we still report no-dropdown.
+      if (options.length === 0) {
+        await bridgeKeyDown(el, 'Enter', 'Enter', 13);
+        await sleep(150);
+        const committed = getComboboxDisplayValue(el);
+        if (committed) return { status: 'filled', matchedOption: committed };
+      }
     }
     texts = options.map((o) => o.textContent?.trim() ?? '');
   }
@@ -290,7 +319,7 @@ export async function fillReactSelect(
     // Post-open guard: handles react-selects where bridgeGetSelectState didn't
     // expose options (lazy / virtualized) — the Yes/No shape only becomes
     // visible after the dropdown opens.
-    if (shouldSkipForExportControlMismatch(category, texts)) {
+    if (shouldSkipYesNoForCategoryMismatch(category, texts, fieldLabel)) {
       await cleanupReactSelect(el);
       return { status: 'skipped', reason: 'no-value' };
     }
@@ -402,7 +431,7 @@ export async function fillAutocomplete(
 
   const texts = options.map((o) => o.textContent?.trim() ?? '');
 
-  if (options.length > 0 && shouldSkipForExportControlMismatch(category, texts)) {
+  if (options.length > 0 && shouldSkipYesNoForCategoryMismatch(category, texts, fieldLabel)) {
     await bridgeKeyDown(el, 'Escape', 'Escape', 27);
     return { status: 'skipped', reason: 'no-value' };
   }
