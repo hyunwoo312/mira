@@ -20,6 +20,7 @@ import {
   RATE_DISMISSED_KEY,
   FIRST_FILL_CELEBRATED_KEY,
 } from '@/lib/constants';
+import { fillErrorMessage, type FillResultSummary } from '@/lib/fill-result';
 
 export interface FillLog {
   field: string;
@@ -49,9 +50,11 @@ interface FillBarProps {
     mlAvailable?: boolean;
     ats?: string;
     totalFormElements?: number;
+    failure?: FillResultSummary['failure'];
   } | null;
   logs?: FillLog[];
   pageUrl?: string;
+  error?: string | null;
   profileReady?: boolean;
 }
 
@@ -63,6 +66,7 @@ export function FillBar({
   result,
   logs = [],
   pageUrl,
+  error,
   profileReady = true,
 }: FillBarProps) {
   const [expanded, setExpanded] = useState(false);
@@ -124,7 +128,7 @@ export function FillBar({
   }, [result, isLoading]);
 
   const copyLogs = useCallback(() => {
-    const text = formatDebugLog(result ?? null, logs, pageUrl ?? '');
+    const text = formatDebugLog(result ?? null, logs, pageUrl ?? '', error);
     navigator.clipboard.writeText(text).then(
       () => {
         setCopied(true);
@@ -132,7 +136,7 @@ export function FillBar({
       },
       () => {},
     );
-  }, [logs, result, pageUrl]);
+  }, [logs, result, pageUrl, error]);
 
   const filledLogs = useMemo(() => logs.filter((l) => l.status === 'filled'), [logs]);
   const failedLogs = useMemo(() => logs.filter((l) => l.status === 'failed'), [logs]);
@@ -159,8 +163,16 @@ export function FillBar({
     onFill();
   }, [onFill]);
 
-  const fillRatio = result ? result.filled / Math.max(result.total, 1) : 0;
-  const resultColor = fillRatio >= 0.8 ? 'green' : fillRatio >= 0.5 ? 'yellow' : 'red';
+  const failureMessage = fillErrorMessage(result, error);
+  const fillRatio = result && !result.failure ? result.filled / Math.max(result.total, 1) : 0;
+  const resultColor =
+    result?.failure || error
+      ? 'red'
+      : fillRatio >= 0.8
+        ? 'green'
+        : fillRatio >= 0.5
+          ? 'yellow'
+          : 'red';
 
   // Button state: idle | loading | result-count | refill
   const buttonState = isLoading
@@ -270,72 +282,97 @@ export function FillBar({
 
       <div className={cn('px-5 pt-4', expanded && 'border-t border-foreground/10')}>
         {result && !isLoading && (
-          <button
-            type="button"
-            onClick={() => setExpanded(!expanded)}
-            aria-expanded={expanded}
-            aria-controls="mira-fill-log"
-            className="block w-full text-left mb-3 -mx-1 px-1 py-0.5 rounded hover:bg-foreground/5 transition-colors cursor-pointer"
+          <div
+            className={cn(
+              'block w-full text-left mb-3 -mx-1 px-1 py-0.5 rounded',
+              !result.failure && 'hover:bg-foreground/5 transition-colors',
+            )}
           >
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-[10px] uppercase tracking-widest font-medium text-foreground/60">
-                {resultColor === 'green'
-                  ? 'Fill Complete'
-                  : resultColor === 'yellow'
-                    ? 'Partially Filled'
-                    : 'Fill Issues'}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <motion.span
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="text-sm font-medium tracking-tight text-foreground/80"
-                >
-                  {result.filled}
-                  <span className="text-foreground/35">/{result.total}</span>
-                </motion.span>
-                <motion.span
-                  animate={{ rotate: expanded ? 180 : 0 }}
-                  transition={{ duration: 0.2, ease }}
-                  className="text-foreground/40"
-                  aria-hidden
-                >
-                  <ChevronDown size={14} />
-                </motion.span>
-              </span>
-            </div>
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 4, opacity: 1 }}
-              transition={{ duration: 0.3, ease }}
-              className="flex gap-0.5 rounded-full overflow-hidden bg-foreground/10"
+            <button
+              type="button"
+              onClick={result.failure ? undefined : () => setExpanded(!expanded)}
+              disabled={!!result.failure}
+              aria-expanded={result.failure ? undefined : expanded}
+              aria-controls={result.failure ? undefined : 'mira-fill-log'}
+              className={cn(
+                'block w-full text-left rounded',
+                result.failure ? 'cursor-default' : 'cursor-pointer',
+              )}
             >
-              {result.filled > 0 && (
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${(result.filled / result.total) * 100}%` }}
-                  transition={{ duration: 0.5, ease }}
-                  className="h-full rounded-full bg-green-600"
-                />
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-[10px] uppercase tracking-widest font-medium text-foreground/60">
+                  {result?.failure
+                    ? result.failure.title
+                    : resultColor === 'green'
+                      ? 'Fill Complete'
+                      : resultColor === 'yellow'
+                        ? 'Partially Filled'
+                        : 'Fill Issues'}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <motion.span
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="text-sm font-medium tracking-tight text-foreground/80"
+                  >
+                    {result.failure ? '!' : result.filled}
+                    {!result.failure && <span className="text-foreground/35">/{result.total}</span>}
+                  </motion.span>
+                  {!result.failure && (
+                    <motion.span
+                      animate={{ rotate: expanded ? 180 : 0 }}
+                      transition={{ duration: 0.2, ease }}
+                      className="text-foreground/40"
+                      aria-hidden
+                    >
+                      <ChevronDown size={14} />
+                    </motion.span>
+                  )}
+                </span>
+              </div>
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 4, opacity: 1 }}
+                transition={{ duration: 0.3, ease }}
+                className="flex gap-0.5 rounded-full overflow-hidden bg-foreground/10"
+              >
+                {!result.failure && result.filled > 0 && (
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${(result.filled / result.total) * 100}%` }}
+                    transition={{ duration: 0.5, ease }}
+                    className="h-full rounded-full bg-green-600"
+                  />
+                )}
+                {!result.failure && (result.failed ?? 0) > 0 && (
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${((result.failed ?? 0) / result.total) * 100}%` }}
+                    transition={{ duration: 0.5, ease, delay: 0.1 }}
+                    className="h-full rounded-full bg-destructive"
+                  />
+                )}
+                {!result.failure && (result.skipped ?? 0) > 0 && (
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${((result.skipped ?? 0) / result.total) * 100}%` }}
+                    transition={{ duration: 0.5, ease, delay: 0.2 }}
+                    className="h-full rounded-full bg-yellow-500/60"
+                  />
+                )}
+              </motion.div>
+              {failureMessage && (
+                <div className="mt-2 text-[11px] leading-snug text-foreground/55">
+                  {failureMessage}
+                  {result?.failure?.retryable === false && (
+                    <span className="block mt-0.5 text-foreground/35">
+                      Try a regular job application page instead.
+                    </span>
+                  )}
+                </div>
               )}
-              {(result.failed ?? 0) > 0 && (
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${((result.failed ?? 0) / result.total) * 100}%` }}
-                  transition={{ duration: 0.5, ease, delay: 0.1 }}
-                  className="h-full rounded-full bg-destructive"
-                />
-              )}
-              {(result.skipped ?? 0) > 0 && (
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${((result.skipped ?? 0) / result.total) * 100}%` }}
-                  transition={{ duration: 0.5, ease, delay: 0.2 }}
-                  className="h-full rounded-full bg-yellow-500/60"
-                />
-              )}
-            </motion.div>
-          </button>
+            </button>
+          </div>
         )}
 
         <AnimatePresence>
@@ -457,7 +494,9 @@ export function FillBar({
                   transition={{ duration: 0.15 }}
                   className="flex items-center gap-2"
                 >
-                  {result.filled}/{result.total} filled
+                  {result.failure
+                    ? result.failure.title
+                    : `${result.filled}/${result.total} filled`}
                 </motion.span>
               )}
               {buttonState === 'refill' && (

@@ -29,12 +29,20 @@ interface DebugLogResult {
   durationMs?: number;
   mlAvailable?: boolean;
   totalFormElements?: number;
+  failure?: {
+    code: string;
+    title: string;
+    message: string;
+    retryable: boolean;
+    detail?: string;
+  };
 }
 
 export function formatDebugLog(
   result: DebugLogResult | null,
   logs: DebugLogItem[],
   pageUrl: string,
+  error?: string | null,
 ): string {
   const lines: string[] = [];
   lines.push('=== MIRA FILL DEBUG LOG ===');
@@ -49,7 +57,14 @@ export function formatDebugLog(
     );
     if (result.durationMs != null) lines.push(`Duration: ${result.durationMs}ms`);
     if (result.mlAvailable != null) lines.push(`ML: ${result.mlAvailable ? 'yes' : 'no'}`);
+    if (result.failure) {
+      lines.push(`Failure: ${result.failure.title} (${result.failure.code})`);
+      lines.push(`Message: ${result.failure.message}`);
+      lines.push(`Retryable: ${result.failure.retryable ? 'yes' : 'no'}`);
+      if (result.failure.detail) lines.push(`Detail: ${result.failure.detail}`);
+    }
   }
+  if (error && !result?.failure) lines.push(`Error: ${error}`);
   lines.push('');
 
   const groups: [string, DebugLogItem[]][] = [

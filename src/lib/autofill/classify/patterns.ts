@@ -11,7 +11,7 @@
 const PATTERNS: [RegExp, string][] = [
   // ── Skip: Conditional/follow-up fields (HIGHEST priority) ──
   [
-    /^if\s+(?:you\s+)?["'\u201C\u201D\u2018\u2019]?(?:select|yes|no|so)\b|please\s+(specify|describe|explain|elaborate)/i,
+    /^if\s+(?:you\s+)?["'\u201C\u201D\u2018\u2019]?(?:select(?:ed)?|yes|no|so)\b|please\s+(specify|describe|explain|elaborate)/i,
     '__skip__',
   ],
 
@@ -20,7 +20,7 @@ const PATTERNS: [RegExp, string][] = [
     /does.*(?:salary|compensation).*meet|(?:salary|compensation).*(?:satisfy|acceptable)/i,
     '__skip__',
   ],
-  [/how.*hear|how.*find.*position|how.*learn.*about|where.*hear/i, '__skip__'],
+  [/how.*hear|how.*find.*position|how.*learn.*about|where.*hear/i, 'hearAbout'],
   [/how.*(?:do|did).*know\s+(?:them|him|her|each)/i, '__skip__'],
   [/^additional\s*(information|context)|^anything\s*else/i, '__skip__'],
   [
@@ -61,6 +61,10 @@ const PATTERNS: [RegExp, string][] = [
   // Applicant self-assertion: "Do you meet the basic qualifications?" → always Yes.
   [
     /(?:meet|have).*(?:the\s+)?(?:basic|minimum|required)\s+qualifications|qualifications.*(?:specified|described|listed)/i,
+    'hasExperience',
+  ],
+  [
+    /(?:worked|work|built|maintained|developed).{0,80}(?:professional\s+setting|professional\s+experience|full.?time\s+(?:software\s+)?engineer|user.?facing\s+web\s+applications?)/i,
     'hasExperience',
   ],
 
@@ -207,6 +211,10 @@ const WILLINGNESS_LOCATION_RE =
 // broken URL on single-line inputs.
 const PROFILE_LINK_TOKENS_RE =
   /\b(?:linkedin|github|stack\s*overflow|gitlab|portfolio|dribbble|behance|twitter|x\s+profile)\b/gi;
+const GITHUB_GITLAB_RE = /\b(?:github|gitlab)\b/i;
+const LINKEDIN_RE = /\blinked\s*in|linkedin\b/i;
+const LINK_PROMPT_RE =
+  /(?:do|would).{0,40}(?:have|maintain|use).{0,80}(?:profile|url|link)|(?:profile|url|link).{0,40}(?:share|provide)|please.{0,40}(?:provide|share)/i;
 
 export function detectMultiLinkPrompt(label: string): boolean {
   const clean = label.replace(/\s+/g, ' ').trim();
@@ -221,6 +229,10 @@ export function detectMultiLinkPrompt(label: string): boolean {
 export function classifyField(label: string): string | null {
   const clean = label.replace(/\s+/g, ' ').trim();
   if (clean.length > 500) return null; // Guard against pathologically long labels (ReDoS)
+  if (LINK_PROMPT_RE.test(clean)) {
+    if (GITHUB_GITLAB_RE.test(clean)) return 'github';
+    if (LINKEDIN_RE.test(clean)) return 'linkedin';
+  }
   for (const [pattern, category] of PATTERNS) {
     if (clean.length > MAX_LABEL_FOR_BROAD && BROAD_CATEGORIES.has(category)) continue;
     if (pattern.test(clean)) {

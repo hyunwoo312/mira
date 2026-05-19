@@ -2,13 +2,16 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Briefcase, ArrowRight, Trash2, MapPin, Download, Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
 import {
   loadApplications,
   deleteApplication,
   clearApplications,
+  updateApplicationStatus,
   getWeeklyStats,
   getATSBreakdown,
   getMonthlyCount,
+  type ApplicationStatus,
   type ApplicationEntry,
 } from '@/lib/application-store';
 
@@ -39,6 +42,27 @@ const ATS_BAR_COLORS: Record<string, string> = {
 };
 
 type DateFilter = 'all' | 'week' | 'month';
+type StatusFilter = ApplicationStatus | null;
+
+const STATUS_OPTIONS: { value: ApplicationStatus; label: string }[] = [
+  { value: 'applied', label: 'Applied' },
+  { value: 'interviewing', label: 'Interviewing' },
+  { value: 'offer', label: 'Offer' },
+  { value: 'rejected', label: 'Rejected' },
+  { value: 'archived', label: 'Archived' },
+];
+
+const STATUS_LABELS = Object.fromEntries(
+  STATUS_OPTIONS.map((option) => [option.value, option.label]),
+) as Record<ApplicationStatus, string>;
+
+const STATUS_STYLES: Record<ApplicationStatus, { text: string; dot: string }> = {
+  applied: { text: 'text-primary', dot: 'bg-primary' },
+  interviewing: { text: 'text-blue-600 dark:text-blue-400', dot: 'bg-blue-500' },
+  offer: { text: 'text-emerald-600 dark:text-emerald-400', dot: 'bg-emerald-500' },
+  rejected: { text: 'text-destructive', dot: 'bg-destructive' },
+  archived: { text: 'text-foreground/45', dot: 'bg-foreground/35' },
+};
 
 function formatDate(ts: number): string {
   const d = new Date(ts);
@@ -57,6 +81,7 @@ export function ApplicationTracker() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [atsFilter, setAtsFilter] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(null);
   const [dateFilter, setDateFilter] = useState<DateFilter>('all');
 
   const refresh = useCallback(async () => {
@@ -90,9 +115,20 @@ export function ApplicationTracker() {
     refresh();
   }, [refresh]);
 
+  const handleStatusChange = useCallback(
+    async (id: string, status: ApplicationStatus) => {
+      setEntries((current) =>
+        current.map((entry) => (entry.id === id ? { ...entry, status } : entry)),
+      );
+      await updateApplicationStatus(id, status);
+      refresh();
+    },
+    [refresh],
+  );
+
   const handleExport = useCallback(() => {
     if (entries.length === 0) return;
-    const header = 'Date,Company,Role,Location,ATS,URL,Filled,Skipped,Failed,Total';
+    const header = 'Date,Company,Role,Location,Status,ATS,URL,Filled,Skipped,Failed,Total';
     const rows = entries.map((e) => {
       const date = new Date(e.timestamp).toISOString().slice(0, 10);
       const escape = (s: string) => `"${s.replace(/"/g, '""')}"`;
@@ -101,6 +137,7 @@ export function ApplicationTracker() {
         escape(e.company),
         escape(e.role),
         escape(e.location),
+        STATUS_LABELS[e.status],
         e.ats,
         escape(e.url),
         e.filled,
@@ -154,6 +191,10 @@ export function ApplicationTracker() {
       result = result.filter((e) => e.ats === atsFilter);
     }
 
+    if (statusFilter) {
+      result = result.filter((e) => e.status === statusFilter);
+    }
+
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter(
@@ -165,7 +206,7 @@ export function ApplicationTracker() {
     }
 
     return result;
-  }, [entries, search, atsFilter, dateFilter, now]);
+  }, [entries, search, atsFilter, statusFilter, dateFilter, now]);
 
   if (loading) return null;
 
@@ -291,6 +332,27 @@ export function ApplicationTracker() {
                   {ats}
                 </button>
               ))}
+
+              {STATUS_OPTIONS.map(({ value, label }) => {
+                const style = STATUS_STYLES[value];
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setStatusFilter(statusFilter === value ? null : value)}
+                    className={cn(
+                      'inline-flex items-center gap-1 text-[9px] px-2 py-0.5 rounded-full font-medium uppercase tracking-wider transition-colors cursor-pointer',
+                      statusFilter === value
+                        ? 'bg-foreground/[0.04]'
+                        : 'bg-foreground/[0.03] text-foreground/30 hover:text-foreground/50',
+                      statusFilter === value && style.text,
+                    )}
+                  >
+                    <span className={cn('size-1.5 rounded-full', style.dot)} aria-hidden />
+                    {label}
+                  </button>
+                );
+              })}
             </div>
           </motion.div>
 
@@ -342,9 +404,10 @@ export function ApplicationTracker() {
                       </div>
                     </div>
                     <div className="shrink-0 self-center flex items-center gap-1">
-                      <span className="text-[10px] text-foreground/30 tabular-nums">
-                        {entry.filled}/{entry.total}
-                      </span>
+                      <StatusSelect
+                        value={entry.status}
+                        onChange={(status) => handleStatusChange(entry.id, status)}
+                      />
                       <button
                         type="button"
                         onClick={() => handleDelete(entry.id)}
@@ -398,6 +461,54 @@ export function ApplicationTracker() {
         </motion.div>
       )}
     </motion.div>
+  );
+}
+
+function StatusSelect({
+  value,
+  onChange,
+}: {
+  value: ApplicationStatus;
+  onChange: (value: ApplicationStatus) => void;
+}) {
+  const selected = STATUS_OPTIONS.find((option) => option.value === value) ?? STATUS_OPTIONS[0]!;
+  const selectedStyle = STATUS_STYLES[selected.value];
+
+  return (
+    <Select value={value} onValueChange={(next) => onChange(next as ApplicationStatus)}>
+      <SelectTrigger
+        size="sm"
+        onClick={(e) => e.stopPropagation()}
+        className={cn(
+          'h-6 w-fit max-w-[124px] gap-1 border-b-0 px-0 py-0 text-[10px] font-semibold uppercase tracking-[0.06em]',
+          'hover:border-b-0 focus-visible:border-b-0 [&_svg]:size-3',
+          selectedStyle.text,
+        )}
+        aria-label="Application status"
+        title="Application status"
+      >
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className={cn('size-1.5 rounded-full', selectedStyle.dot)} aria-hidden />
+          <span className="truncate">{selected.label}</span>
+        </span>
+      </SelectTrigger>
+      <SelectContent align="end" className="min-w-[150px] p-1">
+        {STATUS_OPTIONS.map((option) => {
+          const style = STATUS_STYLES[option.value];
+          return (
+            <SelectItem
+              key={option.value}
+              value={option.value}
+              onClick={(e) => e.stopPropagation()}
+              className="text-[11px]"
+            >
+              <span className={cn('size-1.5 rounded-full', style.dot)} aria-hidden />
+              <span className={cn('font-medium', style.text)}>{option.label}</span>
+            </SelectItem>
+          );
+        })}
+      </SelectContent>
+    </Select>
   );
 }
 

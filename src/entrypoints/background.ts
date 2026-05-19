@@ -12,6 +12,12 @@ import { loadFiles } from '@/lib/file-storage';
 import { saveApplication, parsePageTitle } from '@/lib/application-store';
 import { loadSettings } from '@/lib/settings';
 import {
+  createFailedFillResult,
+  createFillFailure,
+  isRestrictedFillUrl,
+  type FillResultSummary,
+} from '@/lib/fill-result';
+import {
   ML_IDLE_TIMEOUT_MS,
   FILL_COUNT_KEY,
   CHANGELOG_KEY,
@@ -55,7 +61,7 @@ export default defineBackground(() => {
   let sidePanelPort: chrome.runtime.Port | null = null;
   let fillInProgress = false;
   let lastFillResult: {
-    result: unknown;
+    result: FillResultSummary;
     logs: unknown[];
     pageUrl: string;
     error: string | null;
@@ -154,16 +160,7 @@ export default defineBackground(() => {
     presetId?: string,
     onPhase?: (phase: 'injected' | 'filling') => void,
   ): Promise<{
-    result: {
-      filled: number;
-      failed: number;
-      skipped: number;
-      total: number;
-      durationMs?: number;
-      mlAvailable?: boolean;
-      ats?: string;
-      totalFormElements?: number;
-    };
+    result: FillResultSummary;
     logs: unknown[];
     pageUrl: string;
     error: string | null;
@@ -172,41 +169,73 @@ export default defineBackground(() => {
     const targetPresetId = presetId ?? store.activePresetId;
     const preset = store.presets.find((p) => p.id === targetPresetId);
     if (!preset) {
+      const result = createFailedFillResult('preset-not-found');
       return {
-        result: { filled: 0, failed: 0, skipped: 0, total: 0 },
+        result,
         logs: [],
         pageUrl: '',
-        error: 'Preset not found',
+        error: result.failure!.message,
       };
     }
 
     const profile = preset.profile;
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) {
+      const result = createFailedFillResult('no-active-tab');
       return {
-        result: { filled: 0, failed: 0, skipped: 0, total: 0 },
+        result,
         logs: [],
         pageUrl: '',
-        error: null,
+        error: result.failure!.message,
       };
     }
 
     const tabId = tab.id;
+    const pageUrl = tab.url ?? '';
+
+    if (isRestrictedFillUrl(pageUrl)) {
+      const result = createFailedFillResult('restricted-page');
+      return {
+        result,
+        logs: [],
+        pageUrl,
+        error: result.failure!.message,
+      };
+    }
 
     // Inject content scripts on demand (dedup guards in each script prevent double-init)
-    await chrome.scripting
+    const injectionErrors: string[] = [];
+    const pageScriptInjected = await chrome.scripting
       .executeScript({
         target: { tabId, allFrames: true },
         files: ['content-scripts/page-script.js'],
         world: 'MAIN' as chrome.scripting.ExecutionWorld,
       })
-      .catch(() => {});
-    await chrome.scripting
+      .then(() => true)
+      .catch((err: unknown) => {
+        injectionErrors.push(err instanceof Error ? err.message : String(err));
+        return false;
+      });
+    const contentInjected = await chrome.scripting
       .executeScript({
         target: { tabId, allFrames: true },
         files: ['content-scripts/content.js'],
       })
-      .catch(() => {});
+      .then(() => true)
+      .catch((err: unknown) => {
+        injectionErrors.push(err instanceof Error ? err.message : String(err));
+        return false;
+      });
+
+    if (!contentInjected) {
+      const result = createFailedFillResult('injection-failed', injectionErrors.join(' | '));
+      return {
+        result,
+        logs: [],
+        pageUrl,
+        error: result.failure!.message,
+      };
+    }
     await new Promise((r) => setTimeout(r, 200));
 
     // Scripts injected — overlay can now receive messages
@@ -214,24 +243,37 @@ export default defineBackground(() => {
 
     // Detect which frame has the form
     let targetFrameId = 0;
-    const frames = await chrome.webNavigation.getAllFrames({ tabId });
+    let hasDetectedForm = false;
+    const frames = (await chrome.webNavigation.getAllFrames({ tabId }).catch(() => null)) ?? [
+      { frameId: 0 },
+    ];
 
-    if (frames && frames.length > 1) {
-      for (const frame of frames) {
-        try {
-          const det = await chrome.tabs.sendMessage(
-            tabId,
-            { type: 'DETECT_FORM' },
-            { frameId: frame.frameId },
-          );
-          if (det?.hasForm) {
-            targetFrameId = frame.frameId;
-            if (!det.isTop) break;
-          }
-        } catch {
-          // Frame doesn't have content script (restricted frame)
+    for (const frame of frames) {
+      try {
+        const det = await chrome.tabs.sendMessage(
+          tabId,
+          { type: 'DETECT_FORM' },
+          { frameId: frame.frameId },
+        );
+        if (det?.hasForm) {
+          hasDetectedForm = true;
+          targetFrameId = frame.frameId;
+          if (!det.isTop) break;
         }
+      } catch {
+        // Frame doesn't have content script (restricted frame)
       }
+    }
+
+    if (!hasDetectedForm) {
+      const detail = pageScriptInjected ? undefined : injectionErrors.join(' | ');
+      const result = createFailedFillResult('no-form-detected', detail);
+      return {
+        result,
+        logs: [],
+        pageUrl,
+        error: result.failure!.message,
+      };
     }
 
     const settings = await loadSettings();
@@ -290,9 +332,24 @@ export default defineBackground(() => {
 
     const response = await chrome.tabs
       .sendMessage(tabId, fillMessage, { frameId: targetFrameId })
-      .catch(() => ({ result: { filled: 0, total: 0, failed: 0, skipped: 0, logs: [] } }));
+      .catch((err: unknown) => ({
+        result: createFailedFillResult(
+          'content-script-unavailable',
+          err instanceof Error ? err.message : String(err),
+        ),
+        error: createFillFailure('content-script-unavailable').message,
+        logs: [],
+      }));
 
     const res = response?.result ?? { filled: 0, failed: 0, skipped: 0, total: 0, logs: [] };
+    if (res.failure) {
+      return {
+        result: res,
+        logs: response?.logs ?? [],
+        pageUrl,
+        error: res.failure.message,
+      };
+    }
 
     const atsName = res.ats ?? 'generic';
     if (settings.saveApplications && res.total > 0 && atsName !== 'generic') {
@@ -390,6 +447,72 @@ export default defineBackground(() => {
     };
   }
 
+  async function runFillFromActiveTab(presetId?: string): Promise<{
+    result: FillResultSummary;
+    logs: unknown[];
+    pageUrl: string;
+    error: string | null;
+  }> {
+    if (fillInProgress) {
+      const result = createFailedFillResult('already-running');
+      return { result, logs: [], pageUrl: '', error: result.failure!.message };
+    }
+
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tabId = tab?.id;
+    const settings = await loadSettings();
+    const notify = (msg: Record<string, unknown>) => {
+      if (!tabId) return;
+      if (
+        settings.hideOverlay &&
+        typeof msg.type === 'string' &&
+        msg.type.startsWith('FILL_OVERLAY')
+      )
+        return;
+      chrome.tabs.sendMessage(tabId, msg, { frameId: 0 }).catch(() => {});
+    };
+
+    try {
+      fillInProgress = true;
+      lastFillResult = null;
+      sidePanelPort?.postMessage({ type: 'FILL_STARTED' });
+
+      const fillResult = await executeFill(presetId, (phase) => {
+        notify({
+          type: 'FILL_OVERLAY_SHOW',
+          phase: phase === 'injected' ? 'ml-loading' : 'filling',
+        });
+      });
+
+      fillInProgress = false;
+      lastFillResult = fillResult;
+      notify({
+        type: 'FILL_OVERLAY_RESULT',
+        result: fillResult.result,
+        logs: (fillResult.logs as unknown[]).slice(0, 200),
+      });
+      sidePanelPort?.postMessage({ type: 'FILL_RESULT', ...fillResult });
+      return fillResult;
+    } catch (err) {
+      fillInProgress = false;
+      const detail = err instanceof Error ? err.message : String(err);
+      const result = createFailedFillResult('unexpected', detail);
+      const fillResult = {
+        result,
+        logs: [],
+        pageUrl: tab?.url ?? '',
+        error: result.failure!.message,
+      };
+      notify({
+        type: 'FILL_OVERLAY_RESULT',
+        result,
+        logs: [],
+      });
+      sidePanelPort?.postMessage({ type: 'FILL_RESULT', ...fillResult });
+      return fillResult;
+    }
+  }
+
   // ── Context menu ───────────────────────────────────────────────────
   chrome.runtime.onInstalled.addListener((details) => {
     // Context menu
@@ -424,56 +547,7 @@ export default defineBackground(() => {
     if (!menuId.startsWith('mira-fill')) return;
 
     const presetId = menuId === 'mira-fill' ? undefined : menuId.replace('mira-fill-', '');
-
-    (async () => {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      const tabId = tab?.id;
-
-      const settings = await loadSettings();
-      const notify = (msg: Record<string, unknown>) => {
-        if (!tabId) return;
-        if (
-          settings.hideOverlay &&
-          typeof msg.type === 'string' &&
-          msg.type.startsWith('FILL_OVERLAY')
-        )
-          return;
-        chrome.tabs.sendMessage(tabId, msg, { frameId: 0 }).catch(() => {});
-      };
-
-      try {
-        fillInProgress = true;
-        lastFillResult = null;
-        sidePanelPort?.postMessage({ type: 'FILL_STARTED' });
-
-        const fillResult = await executeFill(presetId, (phase) => {
-          if (phase === 'injected') {
-            notify({ type: 'FILL_OVERLAY_SHOW', phase: 'ml-loading' });
-          } else {
-            notify({ type: 'FILL_OVERLAY_SHOW', phase: 'filling' });
-          }
-        });
-
-        fillInProgress = false;
-        lastFillResult = fillResult;
-        notify({
-          type: 'FILL_OVERLAY_RESULT',
-          result: fillResult.result,
-          logs: (fillResult.logs as unknown[]).slice(0, 200),
-        });
-        sidePanelPort?.postMessage({ type: 'FILL_RESULT', ...fillResult });
-      } catch {
-        fillInProgress = false;
-        notify({ type: 'FILL_OVERLAY_DISMISS' });
-        sidePanelPort?.postMessage({
-          type: 'FILL_RESULT',
-          result: { filled: 0, failed: 0, skipped: 0, total: 0 },
-          logs: [],
-          pageUrl: '',
-          error: 'Fill failed',
-        });
-      }
-    })();
+    runFillFromActiveTab(presetId).catch(() => {});
   });
 
   // Rebuild context menus when presets change
@@ -504,57 +578,7 @@ export default defineBackground(() => {
   // ── Keyboard shortcut ──────────────────────────────────────────────
   chrome.commands.onCommand.addListener((command) => {
     if (command !== 'trigger-fill') return;
-
-    (async () => {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      const tabId = tab?.id;
-
-      const settings = await loadSettings();
-      const notify = (msg: Record<string, unknown>) => {
-        if (!tabId) return;
-        if (
-          settings.hideOverlay &&
-          typeof msg.type === 'string' &&
-          msg.type.startsWith('FILL_OVERLAY')
-        )
-          return;
-        chrome.tabs.sendMessage(tabId, msg, { frameId: 0 }).catch(() => {});
-      };
-
-      try {
-        fillInProgress = true;
-        lastFillResult = null;
-        sidePanelPort?.postMessage({ type: 'FILL_STARTED' });
-
-        const fillResult = await executeFill(undefined, (phase) => {
-          if (phase === 'injected') {
-            notify({ type: 'FILL_OVERLAY_SHOW', phase: 'ml-loading' });
-          } else {
-            notify({ type: 'FILL_OVERLAY_SHOW', phase: 'filling' });
-          }
-        });
-
-        fillInProgress = false;
-        lastFillResult = fillResult;
-        notify({
-          type: 'FILL_OVERLAY_RESULT',
-          result: fillResult.result,
-          logs: (fillResult.logs as unknown[]).slice(0, 200),
-        });
-
-        sidePanelPort?.postMessage({ type: 'FILL_RESULT', ...fillResult });
-      } catch {
-        fillInProgress = false;
-        notify({ type: 'FILL_OVERLAY_DISMISS' });
-        sidePanelPort?.postMessage({
-          type: 'FILL_RESULT',
-          result: { filled: 0, failed: 0, skipped: 0, total: 0 },
-          logs: [],
-          pageUrl: '',
-          error: 'Fill failed',
-        });
-      }
-    })();
+    runFillFromActiveTab().catch(() => {});
   });
 
   // (changelog flag is set in the onInstalled listener above)
@@ -619,6 +643,12 @@ export default defineBackground(() => {
 
     if (message.type === 'TRIGGER_FILL') {
       (async () => {
+        if (fillInProgress) {
+          const result = createFailedFillResult('already-running');
+          sendResponse({ result, logs: [], pageUrl: '', error: result.failure!.message });
+          return;
+        }
+
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         const tabId = tab?.id;
 
@@ -636,6 +666,8 @@ export default defineBackground(() => {
           };
           overlayNotify({ type: 'FILL_OVERLAY_SHOW', phase: 'filling' });
           try {
+            fillInProgress = true;
+            lastFillResult = null;
             const response = await chrome.tabs.sendMessage(tabId, {
               type: ONBOARDING_FILL_MESSAGE,
               profile,
@@ -654,6 +686,13 @@ export default defineBackground(() => {
               result,
               logs: response?.logs ?? [],
             });
+            fillInProgress = false;
+            lastFillResult = {
+              result,
+              logs: response?.logs ?? [],
+              pageUrl: tab?.url ?? '',
+              error: response?.error ?? null,
+            };
             sendResponse({
               result,
               logs: response?.logs ?? [],
@@ -661,58 +700,21 @@ export default defineBackground(() => {
               error: response?.error ?? null,
             });
           } catch (err) {
-            overlayNotify({ type: 'FILL_OVERLAY_DISMISS' });
+            fillInProgress = false;
+            const detail = err instanceof Error ? err.message : String(err);
+            const result = createFailedFillResult('demo-fill-failed', detail);
+            overlayNotify({ type: 'FILL_OVERLAY_RESULT', result, logs: [] });
             sendResponse({
-              result: { filled: 0, failed: 0, skipped: 0, total: 0 },
+              result,
               logs: [],
               pageUrl: tab?.url ?? '',
-              error: err instanceof Error ? err.message : 'Demo fill failed',
+              error: result.failure!.message,
             });
           }
           return;
         }
 
-        const settings = await loadSettings();
-        const notify = (msg: Record<string, unknown>) => {
-          if (!tabId) return;
-          if (
-            settings.hideOverlay &&
-            typeof msg.type === 'string' &&
-            msg.type.startsWith('FILL_OVERLAY')
-          )
-            return;
-          chrome.tabs.sendMessage(tabId, msg, { frameId: 0 }).catch(() => {});
-        };
-
-        try {
-          fillInProgress = true;
-          lastFillResult = null;
-          const fillResult = await executeFill(message.presetId, (phase) => {
-            if (phase === 'injected') {
-              notify({ type: 'FILL_OVERLAY_SHOW', phase: 'ml-loading' });
-            } else {
-              notify({ type: 'FILL_OVERLAY_SHOW', phase: 'filling' });
-            }
-          });
-          fillInProgress = false;
-          lastFillResult = fillResult;
-          notify({
-            type: 'FILL_OVERLAY_RESULT',
-            result: fillResult.result,
-            logs: (fillResult.logs as unknown[]).slice(0, 200),
-          });
-          sendResponse(fillResult);
-        } catch (err) {
-          fillInProgress = false;
-          notify({ type: 'FILL_OVERLAY_DISMISS' });
-          const error = err instanceof Error ? err.message : 'Fill failed unexpectedly';
-          sendResponse({
-            result: { filled: 0, failed: 0, skipped: 0, total: 0 },
-            logs: [],
-            pageUrl: '',
-            error,
-          });
-        }
+        sendResponse(await runFillFromActiveTab(message.presetId));
       })();
       return true;
     }

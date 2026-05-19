@@ -13,6 +13,11 @@ export const ML_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 
 // Changelog entries keyed by version
 export const CHANGELOG: Record<string, string[]> = {
+  '0.3.1': [
+    'Clearer fill failure messages — Mira now tells you when Chrome blocks a page, no application form is detected, a profile preset is missing, or another fill is already running.',
+    'Refreshed the floating overlay with the current Mira icon.',
+    'Added a local feedback/debug copy action so flagged fill rows can be reviewed without sending anything anywhere.',
+  ],
   '0.3.0': [
     'Onboarding added — a guided walkthrough opens on first install with a sample candidate and a live demo form so you can try a real fill before building your own profile. Replay it any time from Settings → Onboarding.',
     'Pre-fill from a resume PDF — drop your resume into a fresh preset or the Documents tab, review what was parsed, and save. One-click undo if anything looks off. Everything stays on your device.',

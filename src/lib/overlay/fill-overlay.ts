@@ -8,20 +8,12 @@ import { createRoot, type Root } from 'react-dom/client';
 import { buildStyles } from './overlay-styles';
 import { OverlayApp, type OverlayState } from './overlay-component';
 import { THEME_STORAGE_KEY as THEME_KEY } from '@/lib/theme';
+import type { FillResultSummary } from '@/lib/fill-result';
 
 const SETTINGS_KEY = 'mira_settings';
 const DEFAULT_DISMISS_MS = 8000;
 
-export interface FillResult {
-  filled: number;
-  failed: number;
-  skipped: number;
-  total: number;
-  ats?: string;
-  durationMs?: number;
-  mlAvailable?: boolean;
-  totalFormElements?: number;
-}
+export type FillResult = FillResultSummary;
 
 export interface LogItem {
   field: string;

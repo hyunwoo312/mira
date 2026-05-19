@@ -166,7 +166,7 @@ describe('referral', () => {
   });
 });
 
-// ── "How did you hear" is __skip__ ──
+// ── "How did you hear" defaults to LinkedIn ──
 
 describe('howDidYouHear', () => {
   it.each([
@@ -175,8 +175,8 @@ describe('howDidYouHear', () => {
     'How did you find this position?',
     'How did you learn about this opportunity?',
     'Where did you hear about us?',
-  ])('should classify "%s" as __skip__', (label) => {
-    expect(classifyField(label)).toBe('__skip__');
+  ])('should classify "%s" as hearAbout', (label) => {
+    expect(classifyField(label)).toBe('hearAbout');
   });
 });
 
@@ -263,6 +263,13 @@ describe('linkedin', () => {
 
 describe('github', () => {
   it.each(['GitHub', 'GitHub URL', 'GitHub Profile'])('should classify "%s"', (label) => {
+    expect(classifyField(label)).toBe('github');
+  });
+
+  it.each([
+    'Do you have a Github/Gitlab profile to share with our hiring team?',
+    'If yes, please provide your Github/Gitlab profile.',
+  ])('should classify "%s"', (label) => {
     expect(classifyField(label)).toBe('github');
   });
 });
@@ -499,6 +506,14 @@ describe('heuristic-only categories', () => {
     ['Are you currently enrolled in a university?', 'currentlyEnrolled'],
     ['Are you interested in a full-time offer?', 'fullTimeInterest'],
     ['Does this position require ITAR compliance?', 'exportControl'],
+    [
+      'Have you worked as a full-time software engineer in a professional setting (excluding internships)?',
+      'hasExperience',
+    ],
+    [
+      'Have you built and maintained user-facing web applications in a professional setting?',
+      'hasExperience',
+    ],
   ])('should classify "%s" as %s', (label, expected) => {
     expect(classifyField(label)).toBe(expected);
   });
@@ -557,7 +572,7 @@ describe('Workday application questions (heuristic-matched)', () => {
   it.each([
     ['Do you have relatives currently employed by Clearwater Analytics?', 'referral'],
     ['Were you referred by a Clearwater Analytics employee?', 'referral'],
-    ['How did you hear about this position?', '__skip__'],
+    ['How did you hear about this position?', 'hearAbout'],
   ])('should classify "%s" as %s', (label, expected) => {
     expect(classifyField(label)).toBe(expected);
   });
@@ -615,9 +630,9 @@ describe('edge cases', () => {
     expect(classifyField('eMaIl AdDrEsS')).toBe('email');
   });
 
-  it('should classify short "How did you hear" labels as __skip__', () => {
-    expect(classifyField('How did you hear about us?')).toBe('__skip__');
-    expect(classifyField('Where did you hear about us?')).toBe('__skip__');
+  it('should classify short "How did you hear" labels as hearAbout', () => {
+    expect(classifyField('How did you hear about us?')).toBe('hearAbout');
+    expect(classifyField('Where did you hear about us?')).toBe('hearAbout');
   });
 
   it('should prefer firstName over fullName for "First Name"', () => {

@@ -68,6 +68,31 @@ describe('ImportReviewModal', () => {
     expect(screen.getByText(/No profile fields were found/i)).toBeInTheDocument();
   });
 
+  it('summarizes parsed sections and missing key fields', () => {
+    render(
+      <ImportReviewModal
+        open={true}
+        onClose={vi.fn()}
+        payload={makePayload({
+          fields: {
+            firstName: 'Avery',
+            email: 'avery@example.com',
+            skills: ['React'],
+          },
+        })}
+        currentProfile={DEFAULT_PROFILE}
+        activePresetId="p1"
+        onCommit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByText('Personal').length).toBeGreaterThan(1);
+    expect(screen.getAllByText('Skills').length).toBeGreaterThan(1);
+    expect(screen.getByText('Missing key fields')).toBeInTheDocument();
+    expect(screen.getByText(/Last name/)).toBeInTheDocument();
+    expect(screen.getByText(/Phone/)).toBeInTheDocument();
+  });
+
   it('defaults to skip-conflicts mode', () => {
     render(
       <ImportReviewModal

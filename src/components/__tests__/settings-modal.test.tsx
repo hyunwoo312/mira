@@ -19,11 +19,29 @@ vi.mock('@/hooks/use-settings', () => ({
 }));
 
 describe('SettingsModal', () => {
+  const storage: Record<string, unknown> = {};
+
   beforeEach(() => {
+    for (const key of Object.keys(storage)) delete storage[key];
+    Object.assign(storage, {
+      mira_fill_feedback: [
+        {
+          fieldLabel: 'Email',
+          status: 'failed',
+          pageUrl: 'https://example.com/apply',
+          timestamp: '2026-05-19T12:00:00.000Z',
+        },
+      ],
+    });
     vi.stubGlobal('chrome', {
       ...((globalThis as unknown as { chrome?: typeof chrome }).chrome ?? {}),
       runtime: {
         getManifest: () => ({ version: '0.3.0' }),
+      },
+      storage: {
+        local: {
+          get: vi.fn(async (key: string) => ({ [key]: storage[key] })),
+        },
       },
     });
   });
@@ -36,5 +54,12 @@ describe('SettingsModal', () => {
   it('does not render the modal when closed', () => {
     render(<SettingsModal open={false} onClose={vi.fn()} />);
     expect(screen.queryByText(/^v0\.3\.0$/i)).not.toBeInTheDocument();
+  });
+
+  it('renders the local feedback copy action', () => {
+    render(<SettingsModal open={true} onClose={vi.fn()} />);
+
+    expect(screen.getByText('Copy local feedback')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /copy local feedback/i })).toBeInTheDocument();
   });
 });

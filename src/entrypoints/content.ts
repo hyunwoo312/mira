@@ -60,6 +60,9 @@ export default defineContentScript({
       }
 
       if (message.type === 'DETECT_FORM') {
+        const formElements = document.querySelectorAll(
+          'form input, form select, form textarea, input[type="file"]',
+        ).length;
         const hasForm = !!(
           (
             document.querySelector('[data-automation-id^="applyFlow"]') || // Workday
@@ -71,10 +74,11 @@ export default defineContentScript({
             document.querySelector('.iCIMS_Anchor, .iCIMS_InnerIframe') || // iCIMS wrappers
             document.querySelector(
               'form[action*="greenhouse"], form[action*="lever"], form[action*="ashby"]',
-            )
+            ) ||
+            formElements >= 2
           ) // Generic ATS embedded
         );
-        sendResponse({ hasForm, isTop: window === window.top });
+        sendResponse({ hasForm, isTop: window === window.top, formElements });
         return true;
       }
 
