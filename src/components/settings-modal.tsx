@@ -8,12 +8,14 @@ import {
   RotateCcw,
   Sparkles,
   Settings as SettingsIcon,
+  Copy,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSettings } from '@/hooks/use-settings';
 import type { OverlayDismissMs, Settings } from '@/lib/settings';
 import { clearApplications } from '@/lib/application-store';
 import { openOnboardingTab } from '@/lib/onboarding';
+import { formatFeedbackBundle, loadFeedbackEntries } from '@/lib/autofill/feedback';
 
 const DISMISS_OPTIONS: { label: string; value: OverlayDismissMs }[] = [
   { label: '4s', value: 4000 },
@@ -82,6 +84,16 @@ export function SettingsModal({ open, onClose, onClearAnswerBank, onDeleteAllDat
     void openOnboardingTab();
     onClose();
   }, [onClose]);
+
+  const copyFeedbackBundle = useCallback(async () => {
+    const entries = await loadFeedbackEntries();
+    try {
+      await navigator.clipboard.writeText(formatFeedbackBundle(entries));
+      flash(entries.length > 0 ? 'Feedback copied' : 'No feedback saved yet');
+    } catch {
+      flash('Could not copy feedback');
+    }
+  }, [flash]);
 
   const runConfirmed = useCallback(async () => {
     const kind = confirm;
@@ -158,6 +170,12 @@ export function SettingsModal({ open, onClose, onClearAnswerBank, onDeleteAllDat
             onClick={() => setConfirm('clear-bank')}
             variant="destructive"
           />
+          <IconActionRow
+            label="Copy local feedback"
+            desc="Copies flagged fill rows for debugging. Nothing is sent anywhere."
+            icon={Copy}
+            onClick={copyFeedbackBundle}
+          />
         </Section>
 
         <Section title="Keyboard Shortcuts">
@@ -213,7 +231,7 @@ export function SettingsModal({ open, onClose, onClearAnswerBank, onDeleteAllDat
         </div>
       </div>
     ),
-    [settings, onToggle, openShortcutsPage, replayWalkthrough],
+    [settings, onToggle, openShortcutsPage, replayWalkthrough, copyFeedbackBundle],
   );
 
   const modal = (

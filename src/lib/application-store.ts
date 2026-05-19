@@ -6,6 +6,8 @@
 
 import type { ATSName } from './autofill/types';
 
+export type ApplicationStatus = 'applied' | 'interviewing' | 'offer' | 'rejected' | 'archived';
+
 export interface ApplicationEntry {
   id: string;
   url: string;
@@ -13,6 +15,7 @@ export interface ApplicationEntry {
   role: string;
   location: string;
   ats: ATSName | string;
+  status: ApplicationStatus;
   timestamp: number;
   filled: number;
   failed: number;
@@ -24,6 +27,17 @@ export interface ApplicationEntry {
 const STORAGE_KEY = 'mira_applications';
 const MAX_ENTRIES = 1000;
 const DEDUP_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
+const DEFAULT_STATUS: ApplicationStatus = 'applied';
+
+function normalizeStatus(value: unknown): ApplicationStatus {
+  return value === 'interviewing' ||
+    value === 'offer' ||
+    value === 'rejected' ||
+    value === 'archived' ||
+    value === 'applied'
+    ? value
+    : DEFAULT_STATUS;
+}
 
 /** Extract a canonical job identifier from the URL for deduplication. */
 function extractJobId(url: string, ats?: string): string {
@@ -209,14 +223,19 @@ export async function loadApplications(): Promise<ApplicationEntry[]> {
   const result = await chrome.storage.local.get(STORAGE_KEY);
   const entries = result[STORAGE_KEY];
   if (!Array.isArray(entries)) return [];
-  return entries as ApplicationEntry[];
+  return entries.map((entry) => ({
+    ...(entry as ApplicationEntry),
+    status: normalizeStatus((entry as Partial<ApplicationEntry>).status),
+  }));
 }
 
 // Serialize concurrent saves to prevent race conditions
 let saveLock: Promise<void> = Promise.resolve();
 
 /** Save an application entry, deduplicating multi-page forms. */
-export async function saveApplication(entry: Omit<ApplicationEntry, 'id'>): Promise<void> {
+export async function saveApplication(
+  entry: Omit<ApplicationEntry, 'id' | 'status'>,
+): Promise<void> {
   const release = saveLock;
   let resolve: () => void;
   saveLock = new Promise<void>((r) => {
@@ -231,7 +250,7 @@ export async function saveApplication(entry: Omit<ApplicationEntry, 'id'>): Prom
   }
 }
 
-async function saveApplicationInner(entry: Omit<ApplicationEntry, 'id'>): Promise<void> {
+async function saveApplicationInner(entry: Omit<ApplicationEntry, 'id' | 'status'>): Promise<void> {
   const entries = await loadApplications();
   const ats = typeof entry.ats === 'string' ? entry.ats : undefined;
   const jobId = extractJobId(entry.url, ats);
@@ -261,6 +280,7 @@ async function saveApplicationInner(entry: Omit<ApplicationEntry, 'id'>): Promis
         location: entry.location || existing.location,
         company: entry.company || existing.company,
         role: entry.role || existing.role,
+        status: existing.status ?? DEFAULT_STATUS,
       };
     } else {
       // Different page of same job (e.g., Workday multi-page) — accumulate stats
@@ -276,12 +296,13 @@ async function saveApplicationInner(entry: Omit<ApplicationEntry, 'id'>): Promis
         location: entry.location || existing.location,
         company: entry.company || existing.company,
         role: entry.role || existing.role,
+        status: existing.status ?? DEFAULT_STATUS,
       };
     }
   } else {
     // New entry
     const id = crypto.randomUUID();
-    entries.unshift({ id, ...entry });
+    entries.unshift({ id, status: DEFAULT_STATUS, ...entry });
 
     // Cap at MAX_ENTRIES
     if (entries.length > MAX_ENTRIES) {
@@ -290,6 +311,16 @@ async function saveApplicationInner(entry: Omit<ApplicationEntry, 'id'>): Promis
   }
 
   await chrome.storage.local.set({ [STORAGE_KEY]: entries });
+}
+
+/** Update a tracked application's manual pipeline status. */
+export async function updateApplicationStatus(
+  id: string,
+  status: ApplicationStatus,
+): Promise<void> {
+  const entries = await loadApplications();
+  const updated = entries.map((entry) => (entry.id === id ? { ...entry, status } : entry));
+  await chrome.storage.local.set({ [STORAGE_KEY]: updated });
 }
 
 /** Delete a single application entry. */

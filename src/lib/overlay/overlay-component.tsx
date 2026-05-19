@@ -219,8 +219,9 @@ function ResultView({
   }, [result, logs, pageUrl]);
 
   const ratio = result.total > 0 ? result.filled / result.total : 0;
-  const statusLabel =
-    result.total === 0
+  const statusLabel = result.failure
+    ? result.failure.title
+    : result.total === 0
       ? 'No Fields Found'
       : ratio >= 0.8
         ? 'Fill Complete'
@@ -228,7 +229,11 @@ function ResultView({
           ? 'Partially Filled'
           : 'Fill Issues';
   const filledPct = result.total > 0 ? (result.filled / result.total) * 100 : 0;
-  const failedPct = result.total > 0 ? (result.failed / result.total) * 100 : 0;
+  const failedPct = result.failure
+    ? 100
+    : result.total > 0
+      ? (result.failed / result.total) * 100
+      : 0;
   const skippedPct = result.total > 0 ? (result.skipped / result.total) * 100 : 0;
 
   const grouped = useMemo(
@@ -263,7 +268,7 @@ function ResultView({
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.35, delay: 0.15, ease }}
             >
-              Application Parsed.
+              {result.failure ? result.failure.message : 'Application Parsed.'}
             </motion.div>
           </div>
           {/* Count pops in */}
@@ -273,15 +278,15 @@ function ResultView({
             animate={{ opacity: 1, scale: 1 }}
             transition={{ type: 'spring', stiffness: 500, damping: 25, delay: 0.2 }}
           >
-            {result.filled}
-            <span className="ov-dim">/{result.total} fields</span>
-            {ratio >= 1.0 && <Confetti />}
+            {result.failure ? '!' : result.filled}
+            {!result.failure && <span className="ov-dim">/{result.total} fields</span>}
+            {!result.failure && ratio >= 1.0 && <Confetti />}
           </motion.div>
         </div>
 
         {/* Segment bar */}
         <div className="ov-bar-track">
-          {result.filled > 0 && (
+          {!result.failure && result.filled > 0 && (
             <motion.div
               className="ov-bar-seg ov-green"
               initial={{ width: 0 }}
@@ -289,7 +294,7 @@ function ResultView({
               transition={{ duration: 0.6, ease, delay: 0.25 }}
             />
           )}
-          {result.failed > 0 && (
+          {(result.failure || result.failed > 0) && (
             <motion.div
               className="ov-bar-seg ov-red"
               initial={{ width: 0 }}
@@ -297,7 +302,7 @@ function ResultView({
               transition={{ duration: 0.6, ease, delay: 0.35 }}
             />
           )}
-          {result.skipped > 0 && (
+          {!result.failure && result.skipped > 0 && (
             <motion.div
               className="ov-bar-seg ov-amber"
               initial={{ width: 0 }}
@@ -553,13 +558,26 @@ function MoonIcon() {
 
 function MiraLogo() {
   return (
-    <svg width="16" height="16" viewBox="0 0 100 100" fill="none">
-      <rect x="16" y="38" width="20" height="46" rx="1.5" fill="currentColor" />
-      <rect x="64" y="38" width="20" height="46" rx="1.5" fill="currentColor" />
+    <svg width="16" height="16" viewBox="260 260 480 480" fill="none" aria-hidden>
       <path
-        d="M50 6C50 30 65 38 84 38C65 38 50 46 50 74C50 46 35 38 16 38C35 38 50 30 50 6Z"
+        d="M614.38 461.98l-.3-45.33-62.88 61.92c-30.06 29.61-76.98 25.91-106.34-3.25l-59.57-59.18-.14 151.81c-.02 14.7-10.53 25.85-25.06 27.67-12.03 1.5-29.79-7.39-29.82-22.7l-.38-226.54c-.02-11.16 7.68-19.68 15.66-23.43 10.34-4.86 22.33-3.92 30.67 4.33l115.11 113.73c6.34 6.26 17.14.38 22-4.45l109.65-108.75c8.1-8.04 20.24-9.57 30.53-5.23 8.13 3.43 16.51 12.86 16.51 23.81l.06 115.42-55.72.18Z"
+        fill="#4a4035"
+      />
+      <path
+        d="M603.96 678.99l-191.77-.02c-9.11 0-17.23-12.45-11.95-24.2 2.14-4.76 6.53-8.85 12.64-8.85l190.14.13c8.26 0 13.59 8.3 14.12 14.85.7 8.6-4.03 15.76-13.18 18.1Z"
+        fill="#dfd2c3"
+      />
+      <path
+        d="M603.86 614.87H434.55c-3.83.01-7.25-2.01-9.4-4.71-5.24-6.57-5.55-15.7-.63-22.6 1.87-2.62 5.37-5.67 9.15-5.67l170.02-.03c8.76 1.71 13.66 8.83 13.45 16.95-.11 7.64-4.72 14.31-13.29 16.07Z"
+        fill="#dfd2c3"
+      />
+      <path
+        d="M600.01 550.85l-142.92-.08c-1.58 0-3.66-1.31-4.23-2.27-.64-1.1-.8-3.74-.01-5.02 6.26-10.13 15.34-24.15 27.03-25.88l123.72.05c9.26 1.82 14.37 9.83 13.5 18.33-.66 8.86-7.33 14.88-17.09 14.87Z"
+        fill="#dfd2c3"
+      />
+      <path
+        d="M668.68 598.38a17.53 17.53 0 1 1-35.06 0 17.53 17.53 0 0 1 35.06 0ZM668.68 662.47a17.53 17.53 0 1 1-35.06 0 17.53 17.53 0 0 1 35.06 0ZM668.64 534.22a17.53 17.53 0 1 1-35.06 0 17.53 17.53 0 0 1 35.06 0Z"
         fill="currentColor"
-        opacity="0.4"
       />
     </svg>
   );

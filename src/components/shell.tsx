@@ -90,7 +90,7 @@ export function Shell() {
     deleteAllData,
     isDemoActive,
   } = useProfileWithDemo();
-  const { isLoading, result, logs, pageUrl, fill } = useFill();
+  const { isLoading, result, logs, pageUrl, error, fill } = useFill();
   const { files, addFile, removeFile } = useFiles(activePresetId);
 
   const firstName = form.watch('firstName');
@@ -373,6 +373,7 @@ export function Shell() {
             result={result}
             logs={logs}
             pageUrl={pageUrl}
+            error={error}
             profileReady={profileReady}
           />
           <BottomNav

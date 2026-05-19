@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { saveFeedback, type FeedbackEntry } from '../feedback';
+import {
+  formatFeedbackBundle,
+  loadFeedbackEntries,
+  saveFeedback,
+  type FeedbackEntry,
+} from '../feedback';
 
 const STORAGE_KEY = 'mira_fill_feedback';
 let store: Record<string, unknown> = {};
@@ -81,5 +86,32 @@ describe('saveFeedback', () => {
     );
 
     await expect(saveFeedback(makeEntry())).resolves.toBeUndefined();
+  });
+});
+
+describe('loadFeedbackEntries', () => {
+  it('loads stored feedback entries', async () => {
+    const entry = makeEntry({ fieldLabel: 'Resume' });
+    store[STORAGE_KEY] = [entry];
+
+    await expect(loadFeedbackEntries()).resolves.toEqual([entry]);
+  });
+});
+
+describe('formatFeedbackBundle', () => {
+  it('formats local feedback for clipboard export', () => {
+    const text = formatFeedbackBundle([
+      makeEntry({
+        fieldLabel: 'Current Company',
+        status: 'failed',
+        filledCategory: 'company',
+        timestamp: '2026-05-19T12:00:00.000Z',
+      }),
+    ]);
+
+    expect(text).toContain('=== MIRA LOCAL FEEDBACK ===');
+    expect(text).toContain('Entries: 1');
+    expect(text).toContain('FAILED  Current Company');
+    expect(text).toContain('value/category: company');
   });
 });

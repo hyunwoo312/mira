@@ -5,13 +5,13 @@ export type ImportSource = 'resume-pdf';
 export type ImportMode =
   | 'overwrite-all' // parsed value wins on every field with a parsed value
   | 'skip-conflicts' // parsed value only fills empty fields
-  | 'skip-all'; // skip all parsed fields; only attach the file as a document
+  | 'skip-all'; // attach only; skip parsed fields and save the file as a document
 
 export interface ImportPayload {
   source: ImportSource;
   fileName: string;
   fileSize: number;
-  /** Parsed fields, possibly empty. For "Skip all", these are ignored on commit. */
+  /** Parsed fields, possibly empty. For "Attach only", these are ignored on commit. */
   fields: Partial<Profile>;
   /** Raw file bytes — caller is responsible for attaching to the preset's documents. */
   file: File;

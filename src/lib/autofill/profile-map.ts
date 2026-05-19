@@ -253,6 +253,7 @@ export function profileToFillMap(p: Profile): Record<string, string> {
     // Newline-joined for multi-link textarea prompts; pruning step drops
     // this entry when none are populated.
     profileLinks: [p.linkedin, p.github, p.portfolio, p.twitter].filter(Boolean).join('\n'),
+    hearAbout: 'LinkedIn',
 
     // Work
     company: p.workExperience[0]?.company ?? '',

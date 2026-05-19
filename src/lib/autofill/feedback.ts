@@ -11,10 +11,7 @@ export interface FeedbackEntry {
 
 export async function saveFeedback(entry: FeedbackEntry): Promise<void> {
   try {
-    const result = await chrome.storage.local.get(FEEDBACK_KEY);
-    const existing: FeedbackEntry[] = Array.isArray(result[FEEDBACK_KEY])
-      ? result[FEEDBACK_KEY]
-      : [];
+    const existing = await loadFeedbackEntries();
     existing.push(entry);
     // Keep only the most recent entries
     const trimmed = existing.slice(-MAX_ENTRIES);
@@ -22,4 +19,23 @@ export async function saveFeedback(entry: FeedbackEntry): Promise<void> {
   } catch {
     // Silently fail — feedback is non-critical
   }
+}
+
+export async function loadFeedbackEntries(): Promise<FeedbackEntry[]> {
+  try {
+    const result = await chrome.storage.local.get(FEEDBACK_KEY);
+    return Array.isArray(result[FEEDBACK_KEY]) ? (result[FEEDBACK_KEY] as FeedbackEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function formatFeedbackBundle(entries: FeedbackEntry[]): string {
+  const lines = ['=== MIRA LOCAL FEEDBACK ===', `Entries: ${entries.length}`, ''];
+  for (const entry of entries) {
+    lines.push(`${entry.timestamp}  ${entry.status.toUpperCase()}  ${entry.fieldLabel}`);
+    if (entry.filledCategory) lines.push(`  value/category: ${entry.filledCategory}`);
+    lines.push(`  url: ${entry.pageUrl}`);
+  }
+  return lines.join('\n');
 }

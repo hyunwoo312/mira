@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import type { FillResultSummary } from '@/lib/fill-result';
 
 export interface FillLogItem {
   field: string;
@@ -27,6 +28,7 @@ interface FillState {
     mlAvailable?: boolean;
     ats?: string;
     totalFormElements?: number;
+    failure?: FillResultSummary['failure'];
   } | null;
   logs: FillLogItem[];
   pageUrl: string;

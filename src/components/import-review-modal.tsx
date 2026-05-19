@@ -23,7 +23,7 @@ const MODE_OPTIONS: { value: ImportMode; label: string; desc: string }[] = [
   },
   {
     value: 'skip-all',
-    label: 'Skip all',
+    label: 'Attach only',
     desc: "Don't change profile fields — just save the file as your resume.",
   },
 ];
@@ -87,6 +87,15 @@ const FIELD_GROUPS: FieldGroup[] = [
       { key: 'languages', label: 'Languages' },
     ],
   },
+];
+
+const KEY_FIELDS: { key: FieldKey; label: string }[] = [
+  { key: 'firstName', label: 'First name' },
+  { key: 'lastName', label: 'Last name' },
+  { key: 'email', label: 'Email' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'city', label: 'City' },
+  { key: 'state', label: 'State' },
 ];
 
 export type CommitArgs = {
@@ -158,6 +167,25 @@ export function ImportReviewModal({
     return { applied: total, skipped: 0, conflicts };
   }, [payload, conflictInfo, mode]);
 
+  const parsedSections = useMemo(() => {
+    if (!payload) return [];
+    return FIELD_GROUPS.map((group) => {
+      const scalarCount = group.scalarFields.filter((field) =>
+        isMeaningfulValue(payload.fields[field.key]),
+      ).length;
+      const arrayCount = group.arrayFields.filter((field) => {
+        const value = payload.fields[field.key];
+        return Array.isArray(value) && value.length > 0;
+      }).length;
+      return { id: group.id, label: group.label, count: scalarCount + arrayCount };
+    }).filter((section) => section.count > 0);
+  }, [payload]);
+
+  const missingKeyFields = useMemo(() => {
+    if (!payload) return [];
+    return KEY_FIELDS.filter((field) => !isMeaningfulValue(payload.fields[field.key]));
+  }, [payload]);
+
   const handleSave = async () => {
     if (submitting) return;
     setError(null);
@@ -204,6 +232,7 @@ export function ImportReviewModal({
 
             <div className="space-y-4 shrink-0">
               <PrivacyNote />
+              <ImportCoverage sections={parsedSections} missing={missingKeyFields} />
 
               <Section title="Conflict resolution">
                 <ModePicker mode={mode} onChange={setMode} />
@@ -242,6 +271,46 @@ export function ImportReviewModal({
 
   if (typeof document === 'undefined') return modal;
   return createPortal(modal, document.body);
+}
+
+function ImportCoverage({
+  sections,
+  missing,
+}: {
+  sections: { id: string; label: string; count: number }[];
+  missing: { key: FieldKey; label: string }[];
+}) {
+  return (
+    <div className="space-y-2">
+      {sections.length > 0 && (
+        <div className="grid grid-cols-3 gap-1.5">
+          {sections.slice(0, 6).map((section) => (
+            <div
+              key={section.id}
+              className="rounded-md bg-foreground/[0.03] border border-foreground/[0.06] px-2 py-1.5"
+            >
+              <div className="text-[11px] font-semibold text-foreground/70 tabular-nums">
+                {section.count}
+              </div>
+              <div className="text-[8px] uppercase tracking-[0.08em] text-foreground/35 truncate">
+                {section.label}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {missing.length > 0 && (
+        <div className="rounded-md border border-amber-500/15 bg-amber-500/5 px-3 py-2">
+          <div className="text-[10px] font-medium uppercase tracking-[0.1em] text-amber-700 dark:text-amber-400">
+            Missing key fields
+          </div>
+          <div className="mt-1 text-[10px] leading-relaxed text-foreground/50">
+            {missing.map((field) => field.label).join(', ')}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Header({

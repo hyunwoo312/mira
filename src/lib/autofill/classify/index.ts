@@ -80,19 +80,19 @@ export async function classifyFields(
       }
     }
 
-    // Tier 2: Heuristic patterns (short unambiguous labels).
-    const heuristicCat = classifyField(field.label);
-    if (heuristicCat) {
-      field.category = heuristicCat;
-      field.classifiedBy = 'heuristic';
-      continue;
-    }
-
     // Tier 2a: textarea-only multi-link prompt → profileLinks. On a
     // single-line input the newline-joined value would mash into one
     // broken URL.
     if (field.element instanceof HTMLTextAreaElement && detectMultiLinkPrompt(field.label)) {
       field.category = 'profileLinks';
+      field.classifiedBy = 'heuristic';
+      continue;
+    }
+
+    // Tier 2: Heuristic patterns (short unambiguous labels).
+    const heuristicCat = classifyField(field.label);
+    if (heuristicCat) {
+      field.category = heuristicCat;
       field.classifiedBy = 'heuristic';
       continue;
     }

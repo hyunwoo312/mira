@@ -314,7 +314,12 @@ function buildLeverFixture(): HTMLElement {
   addLabeledInput(form, 'Phone number');
   addLabeledInput(form, 'Current company');
   addLabeledInput(form, 'LinkedIn URL');
-  addLabeledInput(form, 'How did you hear about this job?');
+  addLabeledSelect(form, 'How did you hear about this job?', [
+    'Select...',
+    'Indeed',
+    'LinkedIn Jobs',
+    'Company Website',
+  ]);
   addRadioGroup(form, 'Will you now or in the future require sponsorship?', 'sponsorship', [
     'Yes',
     'No',
@@ -445,17 +450,40 @@ describe('Autofill Integration: Lever-style form', () => {
     expect(linkedin.value).toBe('https://linkedin.com/in/janedoe');
   });
 
-  it('should skip the "how did you hear" field (handled by answer bank, not heuristics)', async () => {
+  it('should default the "how did you hear" field to LinkedIn', async () => {
     buildLeverFixture();
     const fillMap = profileToFillMap(TEST_PROFILE);
     await fillPage(fillMap, []);
 
     const howHeard = document.getElementById(
       'field-how-did-you-hear-about-this-job-',
+    ) as HTMLSelectElement;
+
+    expect(howHeard.value).toBe('LinkedIn Jobs');
+  });
+
+  it('should fill GitHub/GitLab yes/no gate and follow-up URL from the GitHub profile', async () => {
+    const form = document.createElement('form');
+    addLabeledSelect(form, 'Do you have a Github/Gitlab profile to share with our hiring team?', [
+      'Select...',
+      'Yes',
+      'No',
+    ]);
+    addLabeledInput(form, 'If yes, please provide your Github/Gitlab profile.');
+    document.body.appendChild(form);
+
+    const fillMap = profileToFillMap(TEST_PROFILE);
+    await fillPage(fillMap, []);
+
+    const gate = document.getElementById(
+      'field-do-you-have-a-github-gitlab-profile-to-share-with-our-hiring-team-',
+    ) as HTMLSelectElement;
+    const followUp = document.getElementById(
+      'field-if-yes-please-provide-your-github-gitlab-profile-',
     ) as HTMLInputElement;
 
-    // "How did you hear" is classified as __skip__ by patterns — not auto-filled
-    expect(howHeard.value).toBe('');
+    expect(gate.value).toBe('Yes');
+    expect(followUp.value).toBe('https://github.com/janedoe');
   });
 
   it('should select the correct sponsorship radio option', async () => {
@@ -476,9 +504,9 @@ describe('Autofill Integration: Lever-style form', () => {
     const fillMap = profileToFillMap(TEST_PROFILE);
     const result = await fillPage(fillMap, []);
 
-    // 5 text fields + 1 radio group = 6 ("how did you hear" is __skip__)
+    // 5 text fields + 1 source select + 1 radio group
     const filledLogs = result.logs.filter((l) => l.status === 'filled');
-    expect(filledLogs.length).toBeGreaterThanOrEqual(6);
+    expect(filledLogs.length).toBeGreaterThanOrEqual(7);
   });
 });
 

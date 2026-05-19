@@ -294,9 +294,9 @@ function fieldKey(field: ScanResult): string {
 
 /** Skip patterns that override ML classification. */
 const SKIP_LABEL_PATTERNS = [
-  /how.*hear|how.*find.*position|how.*learn.*about|where.*hear/i,
   /^if\s+(you\s+)?select|please\s+(specify|describe|explain|elaborate)/i,
 ];
+const LINK_CATEGORIES = new Set(['linkedin', 'github', 'portfolio', 'twitter', 'otherUrl']);
 
 /** ML labels with no fillMap counterpart — always skip rather than rely on key absence. */
 const NEVER_FILL_CATEGORIES = new Set(['stackoverflow']);
@@ -305,6 +305,7 @@ const NEVER_FILL_CATEGORIES = new Set(['stackoverflow']);
 function shouldSkipField(field: ScanResult, fillMap: Record<string, string>): boolean {
   if (field.category === '__skip__' || field.category === 'customQuestion') return true;
   if (field.category && NEVER_FILL_CATEGORIES.has(field.category)) return true;
+  if (field.category && LINK_CATEGORIES.has(field.category)) return false;
   if (SKIP_LABEL_PATTERNS.some((p) => p.test(field.label))) return true;
   if (
     field.category === 'veteranStatus' &&
@@ -364,7 +365,7 @@ function watchForLateFields(
           if (field.widgetType === 'file-upload') continue;
           if (shouldSkipField(field, fillMap)) continue;
 
-          const value = resolveDynamicValue(field, profile) || fillMap[field.category];
+          const value = resolveDynamicValue(field, profile, fillMap) || fillMap[field.category];
           if (!value) continue;
 
           const outcome = await fillField(field, value, fillMap);
@@ -432,8 +433,17 @@ function watchForLateFields(
 //  Fill Phase Helper
 
 /** Per-question resolver for categories whose value depends on the label. */
-function resolveDynamicValue(field: ScanResult, profile: Profile | undefined): string {
-  if (!profile || !field.category) return '';
+function resolveDynamicValue(
+  field: ScanResult,
+  profile: Profile | undefined,
+  fillMap: Record<string, string>,
+): string {
+  if (!field.category) return '';
+  if (field.category === 'hearAbout') return fillMap[field.category] || 'LinkedIn';
+  if (LINK_CATEGORIES.has(field.category) && isYesNoOptionSet(field.groupLabels)) {
+    return fillMap[field.category] ? 'Yes' : 'No';
+  }
+  if (!profile) return '';
   if (field.category === 'hasDegreeIn') return resolveHasDegreeIn(field.label, profile);
   // "Are you authorized to work in [country]?" with country-name options:
   // ML correctly routes to workAuth, but emitting "Yes" never matches a
@@ -447,6 +457,14 @@ function resolveDynamicValue(field: ScanResult, profile: Profile | undefined): s
     return profile.country ?? '';
   }
   return '';
+}
+
+function isYesNoOptionSet(options: string[] | undefined): boolean {
+  if (!options || options.length < 2 || options.length > 5) return false;
+  const normalized = options.map((option) => option.trim().toLowerCase());
+  return (
+    normalized.some((option) => option === 'yes') && normalized.some((option) => option === 'no')
+  );
 }
 
 async function fillBucket(
@@ -488,7 +506,7 @@ async function fillBucket(
       continue;
     }
 
-    const value = resolveDynamicValue(field, profile) || fillMap[field.category!];
+    const value = resolveDynamicValue(field, profile, fillMap) || fillMap[field.category!];
     if (!value) {
       logs.push({
         field: truncateLabel(field.label),
@@ -738,7 +756,7 @@ export async function fillPage(
       // causing dedup to miss them. Skip them in rescan entirely.
       if (field.widgetType === 'file-upload') continue;
       if (shouldSkipField(field, fillMap)) continue;
-      const value = resolveDynamicValue(field, opts.profile) || fillMap[field.category];
+      const value = resolveDynamicValue(field, opts.profile, fillMap) || fillMap[field.category];
       if (!value) continue;
       if (seenKeys.has(fieldKey(field))) continue;
 
